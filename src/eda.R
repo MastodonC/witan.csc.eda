@@ -12,6 +12,17 @@ library(survminer)
 library(zoo)
 library(networkD3)
 
+## Update with name of local authority
+la_label <- "Your_LA_Here"
+
+chart_title <- function(title){
+  paste(la_label, "-", title)
+}
+
+chart_path <- function(path) {
+  file.path(dirname(path), paste0(Sys.Date(),"-",basename(path)))
+}
+
 ## If you need to install Open Sans for Mastodon theme. Make sure Open Sans is downloaded and installed.
 install.packages("extrafont")
 library(extrafont)
@@ -66,6 +77,23 @@ episodes$ceased <- ymd(episodes$ceased)
 periods <- episodes2periods(episodes)
 periods$admission_age = factor(periods$admission_age)
 
+## Output duration quantiles
+
+fit <- survfit(Surv(duration, event) ~ admission_age, data = periods %>% filter(as.integer(as.character(admission_age)) < 18))
+quantiles <- quantile(fit, probs = seq(0,1,length.out = 101))
+
+impute.quantiles <- function(df) {
+  res <- df %>% as.data.frame %>% mutate(`100` = coalesce(`100`, 18:1 * 365))
+  res <- t(na.approx(t(res))) %>% as.data.frame
+  res <- cbind(age = str_replace(rownames(df),"admission_age=", ""), res)
+  colnames(res) <- c("age", 0:100)
+  res
+}
+
+write.csv(impute.quantiles(quantiles$quantile), "duration-model-median.csv", row.names = FALSE)
+write.csv(impute.quantiles(quantiles$lower), "duration-model-lower.csv", row.names = FALSE)
+write.csv(impute.quantiles(quantiles$upper), "duration-model-upper.csv", row.names = FALSE)
+
 ## Look for policy changes
 
 ## We'll create a new summary dataset which includes report_year, DOB, and phase before and after
@@ -104,8 +132,7 @@ for (year in max_year:min_year) {
 
 ## Estimate trend in arrivals by age
 
-joiner.projection <- function(diffs, from) {
-  to <- as.Date('2023-03-31')
+joiner.projection <- function(diffs, from, to) {
   grid<- expand.grid(admission_age = factor(as.character(0:17), levels = as.character(0:17)), beginning = seq(from,to,'weeks'))
   joiners.model <- glm2(diff ~ beginning * admission_age, data = diffs %>% filter(beginning >= from), family=Gamma(link = log))
   family <- family(joiners.model)
@@ -125,8 +152,9 @@ diffs <- periods %>%
   mutate(diff = diff + 0.01) %>% # Diff must always be greater than zero
   as.data.frame
 
-grid3 <- joiner.projection(diffs, as.Date("2015-03-31"))
-grid4 <- joiner.projection(diffs, as.Date("2014-03-31"))
+max_date <- max(periods$end, na.rm = TRUE)
+grid3 <- joiner.projection(diffs, max_date - years(3), max_date + years(5))
+grid4 <- joiner.projection(diffs, max_date - years(4), max_date + years(5))
 grid.all <- rbind(cbind(grid3, input = "3 years"), cbind(grid4, input = "4 years"))
 
 ggplot(grid.all, aes(x = beginning, y = projection, color = admission_age)) +
@@ -166,23 +194,22 @@ test.admission.age <- function(age) {
   max_index <- max(indices)
   all.hours<-seq(1,max_index)
   aux<-fitPP.fun(tind=TRUE,covariates=cbind(all.hours),posE= indices, n = max_index,start=list(b0=0,b1=0), modSim = TRUE)
-  
+
   posEHB <- transfH.fun(aux)$posEH
   resB <- unifres.fun(posEHB)
   graphresU.fun(unires = resB$unires, posE = aux@posE,
                 Xvariables = cbind(1.0, all.hours),
                 addlow = FALSE)
-  
+
   ResDB <- CalcResD.fun(mlePP = aux, lint = 1000)
   qqnorm(ResDB$RawRes)
   graphrate.fun(ResDB)
-  
+
   res <- globalval.fun(mlePP=aux,lint=1000,resqqplot=FALSE,Xvar = cbind(1.0, 1.0, all.hours))
 }
 
 min_year <- 2010
 max_year <- year(max(diffs$beginning)) - 1
-
 
 for (age in as.character(0:17)) {
   # print(paste("Testing age", age))
@@ -202,62 +229,65 @@ for (age in as.character(0:17)) {
   }
 }
 
-
 ## Estimate underlying bimodal survival curves from censored data
 
-  result <- 0
-  n.times <- 1000
-  d <- 0.5
-  for (i in 1:n.times){
-    data <- sample_n(periods, nrow(periods), replace = TRUE)
-    data <- data %>% mutate(birthday = date_after(if_else(year(beginning) == DOB, beginning, ymd(paste0(DOB, "-01-01")))))  %>%
-      mutate(AOA = floor(interval(birthday, beginning) / years(1)),
-             duration_yrs = duration / 365.0)
-    data$AOA <- factor(data$AOA)
-    fit <- survfit(Surv(duration_yrs, event) ~ AOA, data = data)
-    long.quantile <- melt(quantile(fit, probs = seq(0,1,length.out = 1001))$quantile) %>%
-      mutate(AOA = as.integer(str_replace(Var1, "AOA=", "")),
-             age = value + as.integer(str_replace(Var1, "AOA=", "")))
-    long.cdf <- long.quantile %>%
-      group_by(AOA, year = floor(value / d) * d) %>%
-      summarise(value = Var2[1]) %>%
-      mutate(age = AOA + year) %>%
-      as.data.frame
-    long.cdf <- expand.grid(AOA = 0:17, age = seq(0, 18, by = d)) %>% left_join(long.cdf, by = c("AOA", "age"))
-    wide.cdf <- dcast(AOA ~ age, data = long.cdf, drop = FALSE)
-    wide.cdf <- cbind(wide.cdf, 100)
-    rownames(wide.cdf) <- wide.cdf[,1]
-    wide.cdf <- wide.cdf[,-1]
-    wide.cdf.imputed <- t(na.approx(t(wide.cdf)))
-    wide.cdf.imputed[is.na(wide.cdf.imputed)] <- 0
-    wide.pdf <- wide.cdf.imputed - cbind(0,wide.cdf.imputed[,1:ncol(wide.cdf.imputed)-1])
-    result <- result + wide.pdf
-  }
-  result <- result / n.times
-  colnames(result) <- seq(0,(18 + d),by=d)
-  long.pdf <- melt(result) %>% filter(value > 0) %>% mutate(Var1 = factor(Var1), Var2 = factor(Var2))
-  mVar2 <- max(as.integer(long.pdf$Var2))
-  breaks <- seq(1, mVar2, length.out = mVar2 * d)
-  age.labels <- paste("Admission age:", seq(0,17))
-  names(age.labels) <- seq(0,17)
-  ggplot(long.pdf, aes(Var2, value)) +
-    geom_bar(stat = "identity", fill = tableau_color_pal("Tableau 20")(1)) +
-    scale_fill_manual(values = tableau_color_pal("Tableau 20")(20)) +
-    scale_x_discrete(breaks = as.character(seq(0,18, by = 2))) +
-    scale_y_continuous(breaks = seq(0,40, by = 10), labels = paste0(seq(0,40, by = 10), "%")) +
-    theme(axis.text.x = element_text(angle = -45, hjust = 0, size = 7),
-          axis.text.y = element_text(size = 7)) +
-    facet_wrap(vars(Var1), ncol = 3, labeller = labeller(Var1 = age.labels)) +
-    labs(y = "Proportion exiting", x = "Age at exit", title = "Distribution of exit ages by admission age") +
-    theme_mastodon
+result <- 0
+n.times <- 1000
+d <- 0.5
+for (i in 1:n.times){
+  data <- sample_n(periods, nrow(periods), replace = TRUE)
+  data <- data %>% mutate(birthday = date_after(if_else(year(beginning) == DOB, beginning, ymd(paste0(DOB, "-01-01")))))  %>%
+    mutate(AOA = floor(interval(birthday, beginning) / years(1)),
+           duration_yrs = duration / 365.0)
+  data$AOA <- factor(data$AOA)
+  fit <- survfit(Surv(duration_yrs, event) ~ AOA, data = data)
+  long.quantile <- melt(quantile(fit, probs = seq(0,1,length.out = 1001))$quantile) %>%
+    mutate(AOA = as.integer(str_replace(Var1, "AOA=", "")),
+           age = value + as.integer(str_replace(Var1, "AOA=", "")))
+  long.cdf <- long.quantile %>%
+    group_by(AOA, year = floor(value / d) * d) %>%
+    summarise(value = Var2[1]) %>%
+    mutate(age = AOA + year) %>%
+    as.data.frame
+  long.cdf <- expand.grid(AOA = 0:17, age = seq(0, 18, by = d)) %>% left_join(long.cdf, by = c("AOA", "age"))
+  wide.cdf <- dcast(AOA ~ age, data = long.cdf, drop = FALSE)
+  wide.cdf <- cbind(wide.cdf, 100)
+  rownames(wide.cdf) <- wide.cdf[,1]
+  wide.cdf <- wide.cdf[,-1]
+  wide.cdf.imputed <- t(na.approx(t(wide.cdf)))
+  wide.cdf.imputed[is.na(wide.cdf.imputed)] <- 0
+  wide.pdf <- wide.cdf.imputed - cbind(0,wide.cdf.imputed[,1:ncol(wide.cdf.imputed)-1])
+  result <- result + wide.pdf
+}
+result <- result / n.times
+colnames(result) <- seq(0,(18 + d),by=d)
+long.pdf <- melt(result) %>% filter(value > 0) %>% mutate(Var1 = factor(Var1), Var2 = factor(Var2))
+mVar2 <- max(as.integer(long.pdf$Var2))
+breaks <- seq(1, mVar2, length.out = mVar2 * d)
+age.labels <- paste("Admission age:", seq(0,17))
+names(age.labels) <- seq(0,17)
+ggplot(long.pdf, aes(Var2, value)) +
+  geom_bar(stat = "identity", fill = tableau_color_pal("Tableau 20")(1)) +
+  scale_fill_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  scale_x_discrete(breaks = as.character(seq(0,18, by = 2))) +
+  scale_y_continuous(breaks = seq(0,40, by = 10), labels = paste0(seq(0,40, by = 10), "%")) +
+  theme(axis.text.x = element_text(angle = -45, hjust = 0, size = 7),
+        axis.text.y = element_text(size = 7)) +
+  facet_wrap(vars(Var1), ncol = 3, labeller = labeller(Var1 = age.labels)) +
+  labs(y = "Proportion exiting", x = "Age at exit", title = chart_title("Distribution of exit ages by admission age")) +
+  theme_mastodon
+
+ggsave(chart_path("exit-age-distribution.png"), width = 11, height = 8)
 
 ggplot(periods, aes(as.integer(as.character(admission_age)), duration / 365)) +
   geom_point(position = "jitter", color = tableau_color_pal("Tableau 20")(1), alpha = 0.5) +
   stat_density2d(color = tableau_color_pal("Tableau 20")(3)[3], size = 1) +
   scale_fill_manual(values = tableau_color_pal("Tableau 20")(20)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10)) +
-  labs(y = "Years in care", x = "Age at exit", title = "Comparing age at exit with years in care") +
+  labs(y = "Years in care", x = "Age at exit", title = chart_title("Comparing age at exit with years in care")) +
   theme_mastodon
+
+ggsave(chart_path("exit-age-scatter.png"), width = 11, height = 8)
 
 ## For comparison - from raw data without survival analysis
 
@@ -277,10 +307,12 @@ periods %>%
   scale_x_continuous(lim = c(0,18), breaks = seq(0,18, by = 2)) +
   scale_y_continuous(breaks = seq(0,30, by = 10), labels = paste0(seq(0,30, by = 10), "%")) +
   facet_wrap(vars(admission_age),ncol = 3, labeller = labeller(admission_age = age.labels)) +
-  labs(y = "Years in care", x = "Age at exit", title = "Distribution of exit ages by admission age (unadjusted)") +
+  labs(y = "Years in care", x = "Age at exit", title = chart_title("Distribution of exit ages by admission age (unadjusted)")) +
   theme(axis.text.x = element_text(angle = -45, hjust = 0, size = 7),
         axis.text.y = element_text(size = 7)) +
   theme_mastodon
+
+ggsave(chart_path("exit-age-distribution-unadjusted.png"), width = 11, height = 8)
 
 ## Sankey charts
 
@@ -364,7 +396,7 @@ my.colours <- tableau_color_pal("Tableau 20")(length(levels(results$placement)))
 names(my.colours) <- levels(results$placement)
 
 gtyears <- 2
-candidates <- (periods %>% filter(event == 1) %>% arrange(duration) %>% filter(duration > 365*gtyears))$period_id[1:500]
+candidates <- (periods %>% filter(event == 1 & duration > 365*gtyears) %>%sample_n(250) %>% arrange(duration))$period_id
 ggplot(results %>% filter(period_id %in% candidates), aes(offset, factor(period_id, levels = rev(candidates)))) +
   geom_tile(aes(fill = placement)) +
   scale_fill_manual(values = my.colours) +
@@ -374,9 +406,10 @@ ggplot(results %>% filter(period_id %in% candidates), aes(offset, factor(period_
         panel.grid.major.x = element_line(color = "gray", size = 0.2),
         panel.background = element_blank()) +
   labs(fill = "Placement", y = "Placement sequence", x = "Years in care",
-       title = paste("Children admitted aged 0-3 in care for > 3 years")) +
+       title = chart_title(paste("CiC > ", gtyears, " years"))) +
   theme_mastodon
 
+ggsave(chart_path("cake-plot.png"), width = 11, height = 8)
 
 ## Area charts & total CiC
 min_date <- min(episodes$ceased, na.rm = TRUE)
@@ -388,39 +421,42 @@ results <- episodes_table[dates, on = .(report_date <= date, ceased > date), nom
                              .(date, care_status, legal_status, placement)]
 setDF(results)
 
+
+max_n <- max((results %>% group_by(date) %>% summarise(n = n()))$n)
 results %>% group_by(date) %>% summarise(n = n()) %>%
   ggplot(aes(date, n)) +
   geom_line(color = tableau_color_pal("Tableau 20")(1), size = 0.6) +
-  scale_y_continuous(limits = c(0,800)) +
-  labs(title = "CiC - total count", x = "Date", y = "CiC") +
+  scale_y_continuous(limits = c(0,to_nearest(max_n, 100))) +
+  labs(title = chart_title("CiC - total count"), x = "Date", y = "CiC") +
   theme_mastodon
 
-ggplot(results, aes(date, fill = care_status)) +
-  geom_area(stat = "count") +
-  scale_fill_manual(values = tableau_color_pal("Tableau 20")(20)) +
-  labs(title = "CiC grouped by care status - proportion of total") +
-  theme_mastodon
+ggsave(chart_path("total-cic.png"), width = 11, height = 8)
 
 ggplot(results, aes(date, fill = care_status)) +
   geom_area(stat = "count", position = "fill") +
   scale_y_continuous(breaks = seq(0,1,by=0.2), labels = paste(seq(0,100,by=20),"%")) +
   scale_fill_manual(values = tableau_color_pal("Tableau 20")(20)) +
-  labs(title = "CiC grouped by care status - proportion of total",
+  labs(title = chart_title("CiC grouped by care status - proportion of total"),
        x = "Date", y = "Proportion", fill = "Care status") +
   theme_mastodon
+
+ggsave(chart_path("care-status.png"), width = 11, height = 8)
 
 ggplot(results, aes(date, fill = legal_status)) +
   geom_area(stat = "count", position = "fill") +
   scale_y_continuous(breaks = seq(0,1,by=0.2), labels = paste(seq(0,100,by=20),"%")) +
   scale_fill_manual(values = tableau_color_pal("Tableau 20")(20)) +
-  labs(title = "CiC grouped by legal status - proportion of total",
+  labs(title = chart_title("CiC grouped by legal status - proportion of total"),
        x = "Date", y = "Proportion", fill = "Legal status") +
   theme_mastodon
+
+ggsave(chart_path("legal-status.png"), width = 11, height = 8)
 
 ggplot(results, aes(date, fill = placement)) +
   geom_area(stat = "count", position = "fill") +
   scale_y_continuous(breaks = seq(0,1,by=0.2), labels = paste(seq(0,100,by=20),"%")) +
-  scale_fill_manual(values = tableau_color_pal("Tableau 20")(20)) +
-  labs(title = "CiC grouped by placement - proportion of total",
-       x = "Date", y = "Proportion", fill = "Placement") +
+  scale_fill_manual(values = tableau_color_pal("Tableau 20")(21)) +
+  labs(title = chart_title("CiC grouped by placement - proportion of total")) +
   theme_mastodon
+
+ggsave(chart_path("placement.png"), width = 11, height = 8)
