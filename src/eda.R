@@ -14,6 +14,7 @@ library(networkD3)
 
 ## Update with name of local authority
 la_label <- "Your_LA_Here"
+districts <- c("LA", "Districts", "Here")
 
 chart_title <- function(title){
   paste(la_label, "-", title)
@@ -430,7 +431,7 @@ results %>% group_by(date) %>% summarise(n = n()) %>%
   labs(title = chart_title("CiC - total count"), x = "Date", y = "CiC") +
   theme_mastodon
 
-ggsave(chart_path("total-cic.png"), width = 11, height = 8)
+ggsave(chart_path("total-cic.png"), width = 8, height = 11)
 
 ggplot(results, aes(date, fill = care_status)) +
   geom_area(stat = "count", position = "fill") +
@@ -456,7 +457,207 @@ ggplot(results, aes(date, fill = placement)) +
   geom_area(stat = "count", position = "fill") +
   scale_y_continuous(breaks = seq(0,1,by=0.2), labels = paste(seq(0,100,by=20),"%")) +
   scale_fill_manual(values = tableau_color_pal("Tableau 20")(21)) +
-  labs(title = chart_title("CiC grouped by placement - proportion of total")) +
+  labs(title = chart_title("CiC grouped by placement - proportion of total"),
+       fill = "Placement") +
   theme_mastodon
 
 ggsave(chart_path("placement.png"), width = 11, height = 8)
+
+snpp <- read.csv("2016 SNPP Population persons.csv")
+length(unique(snpp[snpp$AREA_NAME %in% districts,"AREA_NAME"]))
+snpp_la <- colSums(snpp[snpp$AREA_NAME %in% districts & snpp$AGE_GROUP %in% 0:17, 6:ncol(snpp)])
+
+snpp_la <- snpp_la[str_replace(names(snpp_la), "X", "") <= 2020]
+total_la <- data.frame(date = as.Date(paste0(str_replace(names(snpp_la),"X",""), "-07-01")),
+                       n = snpp_la)
+total_cic <- results %>% group_by(date) %>% summarise(n = n()) %>% as.data.frame
+factor = max(total_la$n) / max(total_cic$n)
+max_y <- max(total_cic$n)
+green_orange <- tableau_color_pal("Tableau 20")(5)[c(3,5)]
+
+cols <- c("CiC"=green_orange[1],"LA"=green_orange[2])
+ggplot(NULL, aes(date, n)) +
+  geom_line(data = total_la, size = 0.6, aes(y = n / factor, colour = "LA")) +
+  geom_line(data = total_cic, size = 0.6, aes(colour = "CiC")) +
+  scale_y_continuous(limits = c(0,to_nearest(max_y, 100)),
+                     sec.axis = sec_axis(~.*factor, name = "LA population 0-17 (thousands)",
+                                         labels = paste0(seq(0, 100, by = 25), ""))) +
+  labs(title = chart_title("CiC - total count"), x = "Date", y = "CiC") +
+  scale_colour_manual(name="Population",values=cols) +
+  theme_mastodon
+
+ggsave(chart_path("population-growth.png"), width = 8, height = 12)
+
+## Monthly joiner rates comparison
+
+dates <- data.table(month = seq(min_date, max_date, "month"))
+episodes_table <- as.data.table(episodes %>% mutate(ceased = ifelse(is.na(ceased), as.Date("2050-01-01"), episodes$ceased)))
+results <- episodes_table[dates, on = .(report_date <= month, ceased > month), nomatch = 0, allow.cartesian=TRUE,
+                          .(month, care_status, legal_status, placement)]
+setDF(results)
+monthly_cic <- results %>% mutate(month = floor_date(month, "month")) %>% group_by(month) %>% summarise(cic = n())
+monthly_joiners <- periods %>% mutate(month = floor_date(beginning, "month")) %>%
+  group_by(month) %>% dplyr::summarise(joiners = n())
+monthly_leavers <- periods %>% mutate(month = floor_date(end, "month")) %>%
+  group_by(month) %>% dplyr::summarise(leavers = n())
+
+window <- 6
+monthly_rates <- monthly_cic %>%
+  inner_join(monthly_joiners, by = "month") %>%
+  inner_join(monthly_leavers, by = "month") %>%
+  mutate(cic.mean = rollmean(cic, window, na.pad = TRUE),
+         joiners.sum = rollsum(joiners, window, na.pad = TRUE),
+         leavers.sum = rollsum(leavers, window, na.pad = TRUE),
+         joiners.mean = rollmean(joiners, window, na.pad = TRUE),
+         leavers.mean = rollmean(leavers, window, na.pad = TRUE),
+         ) %>%
+  mutate(joiner.rate = joiners.mean / cic.mean * 100,
+         leaver.rate = leavers.mean / cic.mean * 100,
+         growth = joiners.mean - leavers.mean)
+
+monthly_rates %>%
+  ggplot(aes(month, growth)) +
+  scale_color_manual(values = green_orange, labels = c("Joiners", "Leavers")) +
+  geom_line() +
+  scale_y_continuous() +
+  labs(x = "Month", y = "Monthly net growth, rolling 12-month average", title = chart_title("Monthly net growth")) +
+  stat_smooth(method = "loess", span = 0.5) +
+  theme_mastodon
+
+ggsave(chart_path("monthly-net-growth.png"), width = 11, height = 8)
+
+ggplot(data = monthly_rates) +
+  geom_line(aes(month, joiners.sum, color = "Joiners")) +
+  geom_line(aes(month, leaver.rate * 80, color = "Leaver Rate")) +
+  stat_smooth(aes(month, joiners.sum, color = "Joiners"), alpha = 0.2, span = 1) +
+  stat_smooth(aes(month, leaver.rate * 80, color = "Leaver Rate"), alpha = 0.2, span = 1) +
+  scale_y_continuous(name = "Joiners", sec.axis = sec_axis(~./80, name = "Leaver Rate (%)"),
+                     limits = c(0, 400)) +
+  scale_color_manual(values = green_orange) +
+  theme_mastodon +
+  labs(title = chart_title("Joiners & leaver rate"), x = "Month",
+       color = "Metric")
+
+ggsave(chart_path("joiners-leaver-rate.png"), width = 11, height = 8)
+
+monthly_rates %>%
+  melt(id.vars = c("month")) %>%
+  filter(variable %in% c("joiners.sum", "leavers.sum")) %>%
+  ggplot(aes(month, value, color = variable)) +
+  scale_color_manual(values = green_orange, labels = c("Joiners", "Leavers")) +
+  geom_line() +
+  scale_y_continuous(limits = c(0,400)) +
+  stat_smooth(method = "loess", span = 1) +
+  theme_mastodon +
+  labs(title = chart_title("Monthly joiners & leavers"), x = "Month", y = "Monthly count, rolling 12-month average",
+       color = "Metric")
+
+ggsave(chart_path("joiners-leavers.png"), width = 11, height = 8)
+
+## Where is leaver rate changing most? By age, by placement?
+
+monthly_leavers_age <- periods %>%
+  mutate(month = floor_date(end, "month"),
+         exit_age = round(as.numeric(end - as.Date(paste0(DOB,"-07-31"))) / 365.0)) %>%
+  group_by(exit_age, month) %>%
+  summarise(n = n()) %>%
+  dcast(month ~ exit_age, fill = 0) %>%
+  melt(id.var = "month", value.name = "n", variable.name = "exit_age") %>%
+  mutate(n = as.numeric(n)) %>%
+  group_by(exit_age) %>%
+  arrange(month) %>%
+  mutate(rolling_count = rollmean(n, 12, na.pad = TRUE)) %>%
+  as.data.frame
+
+monthly_leavers_age %>%
+  filter(exit_age %in% 0:18) %>%
+  mutate(exit_age = factor(as.character(exit_age), levels = as.character(0:18))) %>%
+  ggplot(aes(month, rolling_count, fill = exit_age)) +
+  geom_bar(stat = "identity") +
+  theme_mastodon +
+  scale_fill_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  labs(title = "Proportion of leavers by age (inferred)", x = "Month", y = "Monthly count, rolling 12-month average",
+       fill = "Age at exit")
+
+monthly_leavers_age %>%
+  filter(exit_age %in% 0:18) %>%
+  mutate(exit_age = factor(as.character(exit_age), levels = as.character(0:18))) %>%
+  ggplot(aes(month, rolling_count, fill = exit_age)) +
+  geom_bar(stat = "identity") +
+  theme_mastodon +
+  scale_fill_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  labs(title = chart_title("Monthly leavers by age at exit"), x = "Month", y = "Monthly count, rolling 12-month average",
+       fill = "Exit age") +
+  facet_wrap(vars(exit_age))
+
+ggsave(chart_path("monthly-leavers-by-age.png"), width = 11, height = 8)
+
+## Survival analysis example
+library(data.table)
+historic_years <- 10
+dataset_end <- as.Date("2019-03-31")
+test_data <- data.frame(beginning = sample(seq(dataset_end - years(historic_years), dataset_end, "days"),
+                                           10000, replace = TRUE)) %>%
+  mutate(end = beginning + days(as.integer(365 *runif(nrow(.), 0, 10)))) %>% # if_else(runif(nrow(.)) < 0.5, years(1), years(2))) %>%
+  mutate(long_run_duration = as.numeric(difftime(end, beginning, units = "days")) / 365) %>%
+  mutate(end = if_else(end <= dataset_end, end, as.Date(rep(NA,nrow(.))))) %>%
+  mutate(open = is.na(end)) %>%
+  mutate(event = ifelse(open, 0, 1),
+         duration = ifelse(open, as.numeric(difftime(dataset_end, beginning, units = "days")) / 365,
+                           as.numeric(difftime(end, beginning, units = "days")) / 365))
+
+ggplot(test_data, aes(long_run_duration)) +
+  geom_histogram(bins = 50) +
+  theme_mastodon +
+  labs(title = "Generated distribution of durations (10k sample)",
+       x = "Duration (years)", y = "Count")
+
+ggplot(test_data %>% filter(!open), aes(duration)) +
+  geom_histogram(bins = 50) +
+  theme_mastodon +
+  labs(title = "Measured distribution of closed durations (10k sample)",
+       x = "Duration (years)", y = "Count")
+
+surv <- survfit(Surv(duration, event) ~ 1, data = test_data %>% filter(!open))
+ggsurvplot(surv)
+
+fit <- survfit(Surv(duration, event) ~ 1, data = test_data)
+ggsurvplot(fit)
+
+melt(quantile(fit, probs = seq(0,1,length.out = 10000))$quantile) %>%
+  ggplot(aes(value)) +
+  geom_histogram(bins = 50) +
+  theme_mastodon +
+  labs(title = "Inferred distribution of durations (10k sample)",
+       x = "Duration (years)", y = "Count")
+
+## Boxplot
+
+ggplot(periods %>% filter(admission_age %in% 0:17) %>% mutate(admission_age = factor(admission_age, levels = 0:18)),
+       aes(admission_age, duration)) +
+  geom_boxplot() +
+  theme_mastodon +
+  labs(x = "Admission age", y = "Duration (years)", title = chart_title("Closed cases boxplots"))
+
+ggsave(chart_path("closed-cases-boxplot.png"), width = 11, height = 8)
+
+grain <- 1000
+fit <- survfit(Surv(duration, event) ~ admission_age, data = periods)
+qs <- quantile(fit, probs = seq(0,1,length.out = grain))$quantile
+colnames(qs) <- 1:grain
+qs <- qs %>% as.data.frame %>%
+  mutate(admission_age = as.integer(str_replace(rownames(.),"admission_age=","") )) %>%
+  arrange(desc(admission_age)) %>%
+  mutate(`1000` = coalesce(`1000`, (19 - admission_age) * 365))
+
+qs.imputed <- qs %>% dplyr::select(-admission_age) %>% t %>% na.approx %>% t %>% as.data.frame
+colnames(qs.imputed) <- seq(0,1,length.out = grain)
+qs.imputed$admission_age <- qs$admission_age
+melt(qs.imputed, id.vars = c("admission_age"), value.name = "duration") %>%
+  mutate(admission_age = factor(admission_age), duration = duration / 365) %>%
+  ggplot(aes(admission_age, duration)) +
+  geom_boxplot() +
+  theme_mastodon +
+  labs(x = "Admission age", y = "Duration (years)", title = chart_title("Inferred duration boxplots"))
+
+ggsave(chart_path("inferred-duration-boxplot.png"), width = 11, height = 8)
