@@ -3,18 +3,24 @@ library(stringr)
 library(data.table)
 library(lubridate)
 library(ggplot2)
+# install.packages("glm2", dependencies=TRUE)
 library(glm2)
+# install.packages("NHPoisson", dependencies=TRUE)
 library(NHPoisson)
+# install.packages("ggthemes", dependencies=TRUE)
 library(ggthemes)
 library(MASS)
 library(survival)
+# install.packages("survminer", dependencies=TRUE)
 library(survminer)
 library(zoo)
+# install.packages("networkD3", dependencies=TRUE)
 library(networkD3)
 
-## Update with name of local authority
+## Update with name of local authority and set the working directory
 la_label <- "Your_LA_Here"
 districts <- c("LA", "Districts", "Here")
+setwd("/home/bld/wip/cic/witan.csc.suffolk/")
 
 chart_title <- function(title){
   paste(la_label, "-", title)
@@ -25,9 +31,9 @@ chart_path <- function(path) {
 }
 
 ## If you need to install Open Sans for Mastodon theme. Make sure Open Sans is downloaded and installed.
-install.packages("extrafont")
+# install.packages("extrafont")
 library(extrafont)
-font_import()
+# font_import()
 ## End font import
 
 theme_mastodon <- theme(plot.title = element_text(family = "OpenSans-Bold", hjust = 0.5, size = 20,
@@ -113,6 +119,8 @@ placement.transitions.grouped <- placement.transitions %>% mutate(admission_age 
 min_year <- min(placement.transitions.grouped$transition_year)
 max_year <- max(placement.transitions.grouped$transition_year) - 1
 
+# Mosaic Plot
+# TODO: Find a way to save me
 for (year in max_year:min_year) {
   print(paste("Testing year ", year))
   tab <- xtabs(n ~ transition_year + placement + next_placement + admission_age, placement.transitions.grouped %>%
@@ -158,21 +166,30 @@ grid3 <- joiner.projection(diffs, max_date - years(3), max_date + years(5))
 grid4 <- joiner.projection(diffs, max_date - years(4), max_date + years(5))
 grid.all <- rbind(cbind(grid3, input = "3 years"), cbind(grid4, input = "4 years"))
 
+# FIXME: better formatting of x axis
 ggplot(grid.all, aes(x = beginning, y = projection, color = admission_age)) +
   geom_line(aes(linetype = input)) +
   facet_wrap(vars(admission_age), scale = "free") +
   scale_color_manual(values = tableau_color_pal("Tableau 20")(20), guide = "none") +
-  labs(x = "Date", y = "Inter-arrival time (days)", title = "Projected mean inter-arrival time by age of entry (3 & 4 years historic data)",
+  labs(x = "Date", y = "Inter-arrival time (days)", title = chart_title("Projected mean inter-arrival time by age of entry (3 & 4 years historic data)"),
        linetype = "Input history")
 
+# FIXME: better name
+ggsave(chart_path("projected-mean-interarrival-time-by-age-of-entry.png"), width = 11, height = 8)
+
+# FIXME: better formatting of x axis
 ggplot(grid.all, aes(x = beginning, y = projection)) +
   geom_line(aes(linetype = input)) +
   geom_ribbon(aes(x = beginning, ymin = lower_ci, ymax = upper_ci, color = NA, fill = input), alpha = 0.25) +
   facet_wrap(vars(admission_age), scale = "free") +
   coord_cartesian(ylim = c(0, 200)) +
   scale_color_manual(values = tableau_color_pal("Tableau 20")(20), guide = "none") +
-  labs(x = "Date", y = "Inter-arrival time (days)", title = "Projected mean inter-arrival time by age of entry (3 & 4 years historic data)",
+  labs(x = "Date", y = "Inter-arrival time (days)", title = chart_title("Projected mean inter-arrival time by age of entry (3 & 4 years historic data)"),
        linetype = "Input history", fill = "Input history")
+
+# FIXME: better name
+ggsave(chart_path("projected-mean-interarrival-time-by-age-of-entry-2.png"), width = 11, height = 8)
+
 
 ## NHpoisson
 
@@ -189,6 +206,8 @@ for (age in 0:17) {
   fitPP.fun(tind=TRUE,covariates=cbind(all.hours),posE= indices, n = max_index,start=list(b0=0,b1=0), modSim = TRUE,
             tit = paste("Poisson rate for age of admission", age))
 }
+
+# FIXME: Save the above 18 charts ^^
 
 test.admission.age <- function(age) {
   indices <- (perday %>% filter(admission_age == age))$index
@@ -212,6 +231,8 @@ test.admission.age <- function(age) {
 min_year <- 2010
 max_year <- year(max(diffs$beginning)) - 1
 
+## Check to see if we should be excluding any historical data
+# FIXME: this gives off a lot of warnings
 for (age in as.character(0:17)) {
   # print(paste("Testing age", age))
   for (year in max_year:min_year) {
@@ -229,6 +250,7 @@ for (age in as.character(0:17)) {
     }
   }
 }
+
 
 ## Estimate underlying bimodal survival curves from censored data
 
@@ -366,6 +388,7 @@ links <- sankey.transitions %>%
   rename(source = id.x, target = id.y, value = n) %>%
   as.data.frame
 
+# TODO: Find a way to save this
 print(sankeyNetwork(Links = links, Nodes = nodes, Source = "source",
                     Target = "target", Value = "value", NodeID = "placement",
                     NodeGroup = "placement",
@@ -376,6 +399,7 @@ print(sankeyNetwork(Links = links, Nodes = nodes, Source = "source",
                                      .range(["#4E79A7","#A0CBE8","#F28E2B","#FFBE7D","#59A14F","#8CD17D","#B6992D","#F1CE63","#499894","#86BCB6",
                                      "#E15759","#FF9D9A","#79706E","#BAB0AC","#D37295","#FABFD2","#B07AA1","#D4A6C8","#9D7660","#D7B5A6", "#FFFFFF"])')
                     ))
+
 
 
 ## Individual historic sequences
@@ -406,7 +430,11 @@ my.colours <- tableau_color_pal("Tableau 20")(length(levels(results$placement)))
 names(my.colours) <- levels(results$placement)
 
 gtyears <- 2
-candidates <- (periods %>% filter(event == 1 & duration > 365*gtyears) %>%sample_n(250) %>% arrange(duration))$period_id
+# FIXME: Error: `size` must be less or equal than 190 (size of data), set `replace` = TRUE to use sampling with replacement - done as a test
+# candidates <- (periods %>% filter(event == 1 & duration > 365*gtyears) %>%sample_n(250) %>% arrange(duration))$period_id
+# candidates <- (periods %>% filter(event == 1 & duration > 365*gtyears) %>%sample_n(250,replace = TRUE) %>% arrange(duration))$period_id
+candidates <- (periods %>% filter(event == 1 & duration > 365*gtyears) %>%sample_n(190) %>% arrange(duration))$period_id
+
 ggplot(results %>% filter(period_id %in% candidates), aes(offset, factor(period_id, levels = rev(candidates)))) +
   geom_tile(aes(fill = placement)) +
   scale_fill_manual(values = my.colours) +
@@ -446,7 +474,7 @@ ggplot(results, aes(date, fill = care_status)) +
   geom_area(stat = "count", position = "fill") +
   scale_y_continuous(breaks = seq(0,1,by=0.2), labels = paste(seq(0,100,by=20),"%")) +
   scale_fill_manual(values = tableau_color_pal("Tableau 20")(20)) +
-  labs(title = chart_title("CiC grouped by care status - proportion of total"),
+  labs(title = chart_title("CiC grouped by care status - proportion"),
        x = "Date", y = "Proportion", fill = "Care status") +
   theme_mastodon
 
@@ -456,7 +484,7 @@ ggplot(results, aes(date, fill = legal_status)) +
   geom_area(stat = "count", position = "fill") +
   scale_y_continuous(breaks = seq(0,1,by=0.2), labels = paste(seq(0,100,by=20),"%")) +
   scale_fill_manual(values = tableau_color_pal("Tableau 20")(20)) +
-  labs(title = chart_title("CiC grouped by legal status - proportion of total"),
+  labs(title = chart_title("CiC grouped by legal status - proportion"),
        x = "Date", y = "Proportion", fill = "Legal status") +
   theme_mastodon
 
