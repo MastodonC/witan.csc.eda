@@ -285,10 +285,10 @@ ggplot(periods, aes(as.integer(as.character(admission_age)), duration / 365)) +
   stat_density2d(color = tableau_color_pal("Tableau 20")(3)[3], size = 1) +
   scale_fill_manual(values = tableau_color_pal("Tableau 20")(20)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10)) +
-  labs(y = "Years in care", x = "Age at exit", title = chart_title("Comparing age at exit with years in care")) +
+  labs(y = "Years in care", x = "Age of entry", title = chart_title("Comparing age of entry with years in care")) +
   theme_mastodon
 
-ggsave(chart_path("exit-age-scatter.png"), width = 11, height = 8)
+ggsave(chart_path("entry-age-duration-scatter.png"), width = 11, height = 8)
 
 ## For comparison - from raw data without survival analysis
 
@@ -323,7 +323,7 @@ sankey.transitions <- episodes %>%
   unique %>%
   arrange(period_id, phase_number) %>%
   group_by(period_id) %>%
-  mutate(next_placement = coalesce(lead(placement),"[OUT]")) %>%
+  mutate(next_placement = coalesce(lead(placement),"OUT")) %>%
   group_by(phase_number, placement, next_placement) %>%
   summarise(n = n()) %>%
   ungroup
@@ -358,6 +358,8 @@ for (level in 2:3) {
   nodes <- rbind(nodes, new_nodes)
 }
 
+
+
 links <- sankey.transitions %>%
   inner_join(nodes, by = c("phase_number" = "level", "placement" = "placement")) %>%
   inner_join(nodes %>% mutate(level = level - 1), by = c("phase_number" = "level", "next_placement" = "placement")) %>%
@@ -366,8 +368,15 @@ links <- sankey.transitions %>%
 
 print(sankeyNetwork(Links = links, Nodes = nodes, Source = "source",
                     Target = "target", Value = "value", NodeID = "placement",
+                    NodeGroup = "placement",
                     units = "TWh", fontSize = 12, nodeWidth = 30,
-                    sinksRight = FALSE))
+                    sinksRight = FALSE,
+                    colourScale = JS('d3.scaleOrdinal()
+                    .domain(["A3","A4","A5","A6","H5","K1","K2","M2","M3","P1","P2","Q1","Q2","R1","R2","R3","R5","S1", "T1", "Z1","OUT"])
+                                     .range(["#4E79A7","#A0CBE8","#F28E2B","#FFBE7D","#59A14F","#8CD17D","#B6992D","#F1CE63","#499894","#86BCB6",
+                                     "#E15759","#FF9D9A","#79706E","#BAB0AC","#D37295","#FABFD2","#B07AA1","#D4A6C8","#9D7660","#D7B5A6", "#FFFFFF"])')
+                    ))
+
 
 ## Individual historic sequences
 
@@ -528,11 +537,11 @@ ggsave(chart_path("monthly-net-growth.png"), width = 11, height = 8)
 
 ggplot(data = monthly_rates) +
   geom_line(aes(month, joiners.sum, color = "Joiners")) +
-  geom_line(aes(month, leaver.rate * 80, color = "Leaver Rate")) +
+  geom_line(aes(month, leaver.rate * 50, color = "Leaver Rate")) +
   stat_smooth(aes(month, joiners.sum, color = "Joiners"), alpha = 0.2, span = 1) +
-  stat_smooth(aes(month, leaver.rate * 80, color = "Leaver Rate"), alpha = 0.2, span = 1) +
-  scale_y_continuous(name = "Joiners", sec.axis = sec_axis(~./80, name = "Leaver Rate (%)"),
-                     limits = c(0, 400)) +
+  stat_smooth(aes(month, leaver.rate * 50, color = "Leaver Rate"), alpha = 0.2, span = 1) +
+  scale_y_continuous(name = "Joiners", sec.axis = sec_axis(~./50, name = "Leaver Rate (%)"),
+                     limits = c(0, 250)) +
   scale_color_manual(values = green_orange) +
   theme_mastodon +
   labs(title = chart_title("Joiners & leaver rate"), x = "Month",
@@ -546,7 +555,7 @@ monthly_rates %>%
   ggplot(aes(month, value, color = variable)) +
   scale_color_manual(values = green_orange, labels = c("Joiners", "Leavers")) +
   geom_line() +
-  scale_y_continuous(limits = c(0,400)) +
+  scale_y_continuous(limits = c(0,200)) +
   stat_smooth(method = "loess", span = 1) +
   theme_mastodon +
   labs(title = chart_title("Monthly joiners & leavers"), x = "Month", y = "Monthly count, rolling 12-month average",
@@ -609,14 +618,20 @@ test_data <- data.frame(beginning = sample(seq(dataset_end - years(historic_year
 ggplot(test_data, aes(long_run_duration)) +
   geom_histogram(bins = 50) +
   theme_mastodon +
+  scale_y_continuous(limits = c(0,300)) +
   labs(title = "Generated distribution of durations (10k sample)",
        x = "Duration (years)", y = "Count")
+
+ggsave(chart_path("surv-generated.png"), width = 11, height = 8)
 
 ggplot(test_data %>% filter(!open), aes(duration)) +
   geom_histogram(bins = 50) +
   theme_mastodon +
+  scale_y_continuous(limits = c(0,300)) +
   labs(title = "Measured distribution of closed durations (10k sample)",
        x = "Duration (years)", y = "Count")
+
+ggsave(chart_path("surv-censored.png"), width = 11, height = 8)
 
 surv <- survfit(Surv(duration, event) ~ 1, data = test_data %>% filter(!open))
 ggsurvplot(surv)
@@ -630,6 +645,9 @@ melt(quantile(fit, probs = seq(0,1,length.out = 10000))$quantile) %>%
   theme_mastodon +
   labs(title = "Inferred distribution of durations (10k sample)",
        x = "Duration (years)", y = "Count")
+
+ggsave(chart_path("surv-inferred.png"), width = 11, height = 8)
+
 
 ## Boxplot
 
