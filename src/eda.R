@@ -452,10 +452,15 @@ ggplot(results, aes(date, fill = care_status)) +
 
 ggsave(chart_path("care-status.png"), width = 11, height = 8)
 
+
+legal_statuses <- c("C1", "C2", "C4", "D1", "E1", "J1", "J2", "J3", "L1", "L2", "L3", "V2", "V4")
+colour_scale <- tableau_color_pal("Tableau 20")(length(legal_statuses))
+names(colour_scale) <- legal_statuses
+
 ggplot(results, aes(date, fill = legal_status)) +
   geom_area(stat = "count", position = "fill") +
   scale_y_continuous(breaks = seq(0,1,by=0.2), labels = paste(seq(0,100,by=20),"%")) +
-  scale_fill_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  scale_fill_manual(values = colour_scale) +
   labs(title = chart_title("CiC grouped by legal status - proportion of total"),
        x = "Date", y = "Proportion", fill = "Legal status") +
   theme_mastodon
