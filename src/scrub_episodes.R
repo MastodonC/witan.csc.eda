@@ -48,9 +48,12 @@ episodes <- read.csv("data/episodes.csv", header = TRUE, stringsAsFactors = FALS
   parse.dates %>%
   remove.stale.episodes %>%
   remap.placements %>%
-  remove.respite.episodes %>%
   assoc.period.id %>%
   assoc.episode.number %>%
   assoc.phase.id
 
-write.csv(episodes, "data/episodes.scrubbed.csv")
+respite.children <- episodes %>% group_by(period_id) %>% filter(length(unique(legal_status %in% c("V3", "V4"))) > 1) %>% ungroup %>% dplyr::select(ID) %>% unique %>% as.data.frame
+respite.children$ID
+episodes <- episodes %>% filter(!ID %in% respite.children$ID)g
+
+write.csv(episodes, "data/episodes.scrubbed.csv", na = "")
