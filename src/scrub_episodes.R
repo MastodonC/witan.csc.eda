@@ -16,6 +16,10 @@ remap.placements <- function(episodes) {
   episodes %>% mutate(placement = ifelse(placement %in% c("U1", "U2", "U3"), "Q1", ifelse(placement %in% c("U4", "U5", "U6"), "Q2", placement)))
 }
 
+remove.respite.episodes <- function(episodes) {
+  episodes %>% filter(!legal_status %in% c("V3", "V4"))
+}
+
 # We can break each child's episodes into periods of continuous care
 assoc.period.id <- function(episodes) {
   episodes <- episodes %>% arrange(ID, report_date)
@@ -48,4 +52,8 @@ episodes <- read.csv("data/episodes.csv", header = TRUE, stringsAsFactors = FALS
   assoc.episode.number %>%
   assoc.phase.id
 
-write.csv(episodes, "data/episodes.scrubbed.csv")
+respite.children <- episodes %>% group_by(period_id) %>% filter(length(unique(legal_status %in% c("V3", "V4"))) > 1) %>% ungroup %>% dplyr::select(ID) %>% unique %>% as.data.frame
+respite.children$ID
+episodes <- episodes %>% filter(!ID %in% respite.children$ID)g
+
+write.csv(episodes, "data/episodes.scrubbed.csv", na = "")

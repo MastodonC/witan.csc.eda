@@ -51,15 +51,56 @@ placement.pathways <- function(episodes) {
   pathways
 }
 
+year_start <- function(year) {
+  as.Date(paste0(year, "-01-01"))
+}
+
+year_end <- function(year) {
+  year_start(year + 1) - 1
+}
+
+years_before <- function(date, ys) {
+  date - years(ys)
+}
+
+date_between <- function(start, end) {
+  out <- numeric(length = length(start))
+  for(i in seq_along(start)) {
+    out[i] <- sample(seq(min(start[i], end[i]),
+                         max(start[i], end[i]),
+                         by = "day"), 1)
+  }
+  as.Date(out)
+}
+
+
+
+
+imputed_birthday <- function(birth_year, min_start, max_cease) {
+  earliest_possible <- max(max_cease - days(floor(18 * 365.25)) + 1, year_start(birth_year))
+  latest_possible <- min(min_start, year_end(birth_year))
+  date_between(earliest_possible, latest_possible)
+}
+
+
+year_diff <- function(start, stop) {
+  as.numeric(difftime(stop, start, units = "days")) %/% 365.25
+}
+
+
 episodes2periods <- function(episodes) {
   latest_cease <- max(episodes[!is.na(episodes$ceased),]$ceased)
-  periods <- episodes %>% group_by(period_id, DOB) %>%
-    summarise(duration = as.integer(dplyr::coalesce(max(ceased), latest_cease) - min(report_date)),
+  periods <- episodes %>%
+    group_by(period_id) %>%
+    summarise(birth_year = DOB[1],
+              birthday = birthday[1],
+              duration = as.integer(dplyr::coalesce(max(ceased), latest_cease) - min(report_date)),
               open = is.na(max(ceased)),
               first_placement = placement[1],
               beginning = min(report_date),
               end = max(ceased)) %>%
-    mutate(admission_age = as.character(year(beginning) - DOB),
+    mutate(admission_age = year_diff(birthday, beginning),
+           exit_age = year_diff(birthday, end),
            event = ifelse(open, 0, 1)) %>%
     as.data.frame
 }
@@ -74,6 +115,20 @@ date_after <- function(date) {
 episodes <- read.csv("./data/episodes.scrubbed.csv", header = TRUE, stringsAsFactors = FALSE, na.strings ="NA")
 episodes$report_date <- ymd(episodes$report_date)
 episodes$ceased <- ymd(episodes$ceased)
+
+end_date <- max(max(episodes$report_date), max(episodes$ceased, na.rm = TRUE))
+
+# Do we appear to have anyone over 18?
+
+birthdays <- episodes %>%
+  group_by(ID) %>%
+  summarise(birthday = imputed_birthday(DOB[1], min(report_date), coalesce(max(ceased), end_date)))
+
+episodes <- episodes %>% inner_join(birthdays)
+
+episodes %>% group_by(ID) %>%
+  summarise(age = ifelse(is.na(max(ceased)), year_diff(min(birthday), end_date), year_diff(min(birthday), max(ceased)))) %>%
+  filter(age > 17)
 
 periods <- episodes2periods(episodes)
 periods$admission_age = factor(periods$admission_age)
@@ -91,9 +146,9 @@ impute.quantiles <- function(df) {
   res
 }
 
-write.csv(impute.quantiles(quantiles$quantile), "duration-model-median.csv", row.names = FALSE)
-write.csv(impute.quantiles(quantiles$lower), "duration-model-lower.csv", row.names = FALSE)
-write.csv(impute.quantiles(quantiles$upper), "duration-model-upper.csv", row.names = FALSE)
+write.csv(impute.quantiles(quantiles$quantile), "data/duration-model-median.csv", row.names = FALSE)
+write.csv(impute.quantiles(quantiles$lower), "data/duration-model-lower.csv", row.names = FALSE)
+write.csv(impute.quantiles(quantiles$upper), "data/duration-model-upper.csv", row.names = FALSE)
 
 ## Look for policy changes
 
@@ -440,7 +495,7 @@ results %>% group_by(date) %>% summarise(n = n()) %>%
   labs(title = chart_title("CiC - total count"), x = "Date", y = "CiC") +
   theme_mastodon
 
-ggsave(chart_path("total-cic.png"), width = 8, height = 11)
+ggsave(chart_path("total-cic.png"), width = 11, height = 8)
 
 ggplot(results, aes(date, fill = care_status)) +
   geom_area(stat = "count", position = "fill") +
@@ -567,6 +622,69 @@ monthly_rates %>%
        color = "Metric")
 
 ggsave(chart_path("joiners-leavers.png"), width = 11, height = 8)
+
+# Monthly joiner rates by age
+
+dates <- data.table(month = seq(min_date, max_date, "month"))
+episodes_table <- as.data.table(episodes %>% mutate(ceased = ifelse(is.na(ceased), as.Date("2050-01-01"), episodes$ceased)))
+results <- episodes_table[dates, on = .(report_date <= month, ceased > month), nomatch = 0, allow.cartesian=TRUE,
+                          .(month, birthday, care_status, legal_status, placement)]
+results$age <- year_diff(results$birthday, results$month)
+setDF(results)
+monthly_cic <- results %>% mutate(month = floor_date(month, "month")) %>% group_by(month, age) %>% summarise(cic = n())
+monthly_joiners <- periods %>% mutate(month = floor_date(beginning, "month"), age = as.integer(as.character(admission_age))) %>%
+  group_by(month, age) %>% dplyr::summarise(joiners = n())
+monthly_leavers <- periods %>% mutate(month = floor_date(end, "month"), age = as.integer(as.character(exit_age))) %>%
+  group_by(month, age) %>% dplyr::summarise(leavers = n())
+
+window <- 6
+monthly_rates <- monthly_cic %>%
+  inner_join(monthly_joiners, by = c("month", "age")) %>%
+  inner_join(monthly_leavers, by = c("month", "age")) %>%
+  mutate(cic.mean = rollmean(cic, window, na.pad = TRUE),
+         joiners.sum = rollsum(joiners, window, na.pad = TRUE),
+         leavers.sum = rollsum(leavers, window, na.pad = TRUE),
+         joiners.mean = rollmean(joiners, window, na.pad = TRUE),
+         leavers.mean = rollmean(leavers, window, na.pad = TRUE),
+  ) %>%
+  mutate(joiner.rate = joiners.mean / cic.mean * 100,
+         leaver.rate = leavers.mean / cic.mean * 100,
+         growth = joiners.mean - leavers.mean)
+
+monthly_rates %>%
+  ggplot(aes(month, growth)) +
+  scale_color_manual(values = green_orange, labels = c("Joiners", "Leavers")) +
+  geom_line() +
+  scale_y_continuous() +
+  labs(x = "Month", y = "Monthly net growth, rolling 12-month average", title = chart_title("Monthly net growth")) +
+  stat_smooth(method = "loess", span = 0.5) +
+  facet_wrap(vars(age)) +
+  theme_mastodon
+
+ggsave(chart_path("monthly-net-growth.png"), width = 11, height = 8)
+
+ggplot(data = monthly_rates) +
+  geom_line(aes(month, joiners.sum, color = "Joiners")) +
+  geom_line(aes(month, leaver.rate * 50, color = "Leaver Rate")) +
+  stat_smooth(aes(month, joiners.sum, color = "Joiners"), alpha = 0.2, span = 1) +
+  stat_smooth(aes(month, leaver.rate * 50, color = "Leaver Rate"), alpha = 0.2, span = 1) +
+  scale_y_continuous(name = "Joiners", sec.axis = sec_axis(~./50, name = "Leaver Rate (%)"),
+                     limits = c(0, 250)) +
+  scale_color_manual(values = green_orange) +
+  theme_mastodon +
+  facet_wrap(vars(age)) +
+  labs(title = chart_title("Joiners & leaver rate"), x = "Month",
+       color = "Metric")
+
+ggplot(data = monthly_rates) +
+  geom_line(aes(month, leaver.rate, color = "Leaver Rate")) +
+  scale_color_manual(values = green_orange) +
+  theme_mastodon +
+  facet_wrap(vars(age)) +
+  labs(title = chart_title("Joiners & leaver rate"), x = "Month",
+       color = "Metric")
+
+ggsave(chart_path("joiners-leaver-rate.png"), width = 11, height = 8)
 
 ## Where is leaver rate changing most? By age, by placement?
 
