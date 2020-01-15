@@ -186,6 +186,62 @@ for (year in max_year:min_year) {
   }
 }
 
+
+## Transitions start here:
+
+dates <-  data.table(day = seq(min_date, max_date, "day"))
+
+episodes_table <- episodes %>%
+  group_by(period_id) %>%
+  mutate(open = is.na(max(ceased))) %>%
+  arrange(period_id, report_date) %>%
+  mutate(next_placement = lead(placement)) %>%
+  mutate(next_placement = ifelse(is.na(next_placement), "OUT", next_placement),
+         ceased = if_else(is.na(ceased), as.Date("2050-01-01"), ceased)) %>%
+  dplyr::select(period_id, report_date, birthday, ceased, placement, next_placement) %>%
+  mutate(ceased = if_else(next_placement == "OUT", ceased, ceased - 1)) %>%
+  as.data.table
+
+results <- episodes_table[dates, on = .(report_date <= day, ceased > day), nomatch = 0, allow.cartesian=TRUE,
+                          .(period_id, day, birthday, placement)]
+
+transitions <- episodes_table %>% mutate(day = ceased) %>% filter(day < as.Date("2050-01-01")) %>% dplyr::select(period_id, day, placement, next_placement, birthday)
+
+non_transitions <- results %>% as.data.frame %>% mutate(next_placement = placement) %>% dplyr::select(period_id, day, placement, next_placement, birthday)
+transitions %>% filter(period_id == "1000-1", day == "2010-11-29")
+non_transitions %>% filter(period_id == "1000-1", day == "2010-11-30")
+transitions_summary <- rbind(transitions, non_transitions) %>%
+  mutate(age = year_diff(birthday, day),
+         report_year = factor(year(day + days(275)))) %>%
+  group_by(age, report_year, placement, next_placement) %>%
+  summarise(n = n()) %>%
+  mutate(p = n / sum(n))
+
+all.placements <- c("A3", "A4", "A5", "A6", "H5", "K1", "K2", "M2", "M3", "P1", "P2",
+                    "Q1","Q2", "R1", "R2", "R3", "R5", "S1", "T0", "T4", "Z1", "OUT")
+
+
+# Define the number of colors you want
+nb.cols <- 21
+my.colours <- colorRampPalette(tableau_color_pal("Tableau 20")(11))(nb.cols)
+my.colours <- c(my.colours, "#888888")
+names(my.colours) <- all.placements
+
+transitions_summary %>%
+  filter(p < 0.5) %>%
+  filter(placement != next_placement) %>%
+  filter(placement == "Q2") %>%
+  filter(age %in% c(0,1,2,17)) %>%
+  ggplot(aes(report_year, p, fill = next_placement)) +
+  geom_bar(stat = "identity", position = position_dodge2(width = 0.9, preserve = "single")) +
+  facet_wrap(vars(age)) +
+  theme_mastodon +
+  scale_fill_manual(values = my.colours) +
+  labs(title = "Norfolk Q2 transition destinations by age", fill = "Next placement", x = "Transition year", y = "Proportion of transitions per year")
+
+ggsave(chart_path("norfolk-q2-transitions-age-zoom.png"), width = 8, height = 12)
+
+
 ## Estimate trend in arrivals by age
 
 joiner.projection <- function(diffs, from, to) {
