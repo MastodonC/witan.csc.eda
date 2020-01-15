@@ -212,7 +212,7 @@ transitions %>% filter(period_id == "1000-1", day == "2010-11-29")
 non_transitions %>% filter(period_id == "1000-1", day == "2010-11-30")
 transitions_summary <- rbind(transitions, non_transitions) %>%
   mutate(age = year_diff(birthday, day),
-         report_year = factor(year(day + days(275)))) %>%
+         report_year = year(day + days(275))) %>%
   group_by(age, report_year, placement, next_placement) %>%
   summarise(n = n()) %>%
   mutate(p = n / sum(n))
@@ -228,25 +228,33 @@ my.colours <- c(my.colours, "#888888")
 names(my.colours) <- all.placements
 
 transitions_summary %>%
+  ungroup %>%
   filter(p < 0.5) %>%
+  filter(report_year > 2014) %>%
+  mutate(report_year = factor(report_year)) %>%
   filter(placement != next_placement) %>%
   filter(placement == "Q2") %>%
   filter(age %in% c(0,1,2,17)) %>%
-  ggplot(aes(report_year, p, fill = next_placement)) +
+  ggplot(aes(report_year, n, fill = next_placement)) +
   geom_bar(stat = "identity", position = position_dodge2(width = 0.9, preserve = "single")) +
-  facet_wrap(vars(age)) +
+  facet_wrap(vars(age), nrow = 3) +
   theme_mastodon +
   scale_fill_manual(values = my.colours) +
-  labs(title = "Norfolk Q2 transition destinations by age", fill = "Next placement", x = "Transition year", y = "Proportion of transitions per year")
+  labs(title = NULL, fill = "Next placement", x = "Transition year", y = "Proportion of transitions per year")
 
-ggsave(chart_path("norfolk-q2-transitions-age-zoom.png"), width = 8, height = 12)
-
+ggsave(chart_path("suffolk-q2-transitions-age-zoom.png"), width = 14, height = 7)
 
 ## Estimate trend in arrivals by age
+install.packages("arm")
+library(arm)
+from <- max_date - years(3)
+to <- max_date + years(5)
+grid<- expand.grid(admission_age = factor(as.character(0:17), levels = as.character(0:17)), beginning = seq(from,to,'weeks'))
+joiners.model <- bayesglm(diff ~ beginning * admission_age, data = diffs %>% filter(beginning >= from), family=Gamma(link = log))
 
 joiner.projection <- function(diffs, from, to) {
   grid<- expand.grid(admission_age = factor(as.character(0:17), levels = as.character(0:17)), beginning = seq(from,to,'weeks'))
-  joiners.model <- glm2(diff ~ beginning * admission_age, data = diffs %>% filter(beginning >= from), family=Gamma(link = log))
+  joiners.model <- bayesglm(diff ~ beginning * admission_age, data = diffs %>% filter(beginning >= from), family=Gamma(link = log))
   family <- family(joiners.model)
   ilink <- family$linkinv
   grid <- bind_cols(grid, setNames(as_tibble(predict(joiners.model, grid, se.fit = TRUE)[1:2]), c('fit_link','se_link'))) %>%
@@ -280,6 +288,17 @@ ggplot(grid.all, aes(x = beginning, y = projection)) +
   geom_line(aes(linetype = input)) +
   geom_ribbon(aes(x = beginning, ymin = lower_ci, ymax = upper_ci, color = NA, fill = input), alpha = 0.25) +
   facet_wrap(vars(admission_age), scale = "free") +
+  coord_cartesian(ylim = c(0, 100)) +
+  scale_color_manual(values = tableau_color_pal("Tableau 20")(20), guide = "none") +
+  labs(x = "Date", y = "Inter-arrival time (days)", title = "Projected mean inter-arrival time by age of entry (3 & 4 years historic data)",
+       linetype = "Input history", fill = "Input history")
+
+grid.all %>%
+  filter(admission_age == 10) %>%
+  ggplot(aes(x = beginning, y = projection)) +
+  geom_line(aes(linetype = input)) +
+  geom_ribbon(aes(x = beginning, ymin = lower_ci, ymax = upper_ci, color = NA, fill = input), alpha = 0.25) +
+  geom_point(data = diffs %>% filter(admission_age == 10), aes(beginning, diff)) +
   coord_cartesian(ylim = c(0, 200)) +
   scale_color_manual(values = tableau_color_pal("Tableau 20")(20), guide = "none") +
   labs(x = "Date", y = "Inter-arrival time (days)", title = "Projected mean inter-arrival time by age of entry (3 & 4 years historic data)",
