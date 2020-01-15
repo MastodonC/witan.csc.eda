@@ -153,13 +153,13 @@ write.csv(impute.quantiles(quantiles$upper), "data/duration-model-upper.csv", ro
 ## Look for policy changes
 
 ## We'll create a new summary dataset which includes report_year, DOB, and phase before and after
-max_transition_year <- year(max(episodes$report_date)) - 1 # Ignore most recent unfinished year
+
 placement.transitions <- episodes %>% group_by(period_id, phase_number, placement) %>%
   summarise(DOB = min(DOB), beginning = min(report_date), end = max(ceased), CIN = care_status[1], legal_status = legal_status[1]) %>%
   as.data.frame %>% arrange(period_id, phase_number) %>%
   group_by(period_id) %>% mutate(next_placement = lead(placement)) %>%
-  filter(!is.na(next_placement) & year(end) <= max_transition_year) %>%
-  mutate(transition_year = year(end))
+  filter(!is.na(next_placement)) %>%
+  mutate(transition_year = year(end + days(275)))
 
 placement.transitions.grouped <- placement.transitions %>% mutate(admission_age = transition_year - DOB) %>%
   group_by(transition_year, admission_age, placement, next_placement, CIN, legal_status) %>%
