@@ -230,11 +230,11 @@ names(my.colours) <- all.placements
 transitions_summary %>%
   ungroup %>%
   filter(p < 0.5) %>%
-  filter(report_year > 2014) %>%
+  filter(report_year > 2010) %>%
   mutate(report_year = factor(report_year)) %>%
   filter(placement != next_placement) %>%
   filter(placement == "Q2") %>%
-  filter(age %in% c(0,1,2,17)) %>%
+  # filter(age %in% c(0,1,2,17)) %>%
   ggplot(aes(report_year, n, fill = next_placement)) +
   geom_bar(stat = "identity", position = position_dodge2(width = 0.9, preserve = "single")) +
   facet_wrap(vars(age), nrow = 3) +
@@ -243,6 +243,26 @@ transitions_summary %>%
   labs(title = NULL, fill = "Next placement", x = "Transition year", y = "Proportion of transitions per year")
 
 ggsave(chart_path("suffolk-q2-transitions-age-zoom.png"), width = 14, height = 7)
+
+## Leaver rate by month
+dates <-  data.frame(day = seq(as.Date("2015-03-01"), as.Date("2018-03-01"), "month"),
+                     join = "x")
+periods_table <- periods %>%
+  mutate(end = if_else(is.na(end), as.Date("2050-01-01"), end),
+         join = "x")
+
+dates %>% full_join(periods_table) %>%
+  filter(beginning <= day & end > day) %>%
+  mutate(cease = end <= day + years(1)) %>%
+  group_by(day) %>%
+  summarise(n = n(), ceases = sum(as.integer(cease)),
+            cease_rate = mean(as.integer(cease))) %>%
+  ggplot(aes(day, cease_rate)) +
+  geom_bar(stat = "identity", fill = my.colours[1]) +
+  theme_mastodon +
+  labs(y = "Cease rate", )
+
+unique(results$end)
 
 ## Estimate trend in arrivals by age
 install.packages("arm")
@@ -293,13 +313,15 @@ ggplot(grid.all, aes(x = beginning, y = projection)) +
   labs(x = "Date", y = "Inter-arrival time (days)", title = "Projected mean inter-arrival time by age of entry (3 & 4 years historic data)",
        linetype = "Input history", fill = "Input history")
 
+
+admission.age = 3
 grid.all %>%
-  filter(admission_age == 10) %>%
+  filter(admission_age == admission.age) %>%
   ggplot(aes(x = beginning, y = projection)) +
   geom_line(aes(linetype = input)) +
   geom_ribbon(aes(x = beginning, ymin = lower_ci, ymax = upper_ci, color = NA, fill = input), alpha = 0.25) +
-  geom_point(data = diffs %>% filter(admission_age == 10), aes(beginning, diff)) +
-  coord_cartesian(ylim = c(0, 200)) +
+  geom_point(data = diffs %>% filter(admission_age == admission.age), aes(beginning, diff)) +
+  coord_cartesian(ylim = c(0, 100)) +
   scale_color_manual(values = tableau_color_pal("Tableau 20")(20), guide = "none") +
   labs(x = "Date", y = "Inter-arrival time (days)", title = "Projected mean inter-arrival time by age of entry (3 & 4 years historic data)",
        linetype = "Input history", fill = "Input history")
