@@ -13,16 +13,19 @@ library(zoo)
 library(networkD3)
 library(fitdistrplus)
 
+output_root <- "/home/bld/wip/cic/witan.csc.eda/data/Suffolk"
+
 ## Update with name of local authority
-la_label <- "Your_LA_Here"
+la_label <- "Suffolk"
+scrubbed_episodes <- "/home/bld/wip/cic-data/Suffolk/Suffolk processed data/2020-01-15/episodes.scrubbed.csv"
 districts <- c("LA", "Districts", "Here")
 
 chart_title <- function(title){
   paste(la_label, "-", title)
 }
 
-chart_path <- function(path) {
-  file.path(dirname(path), paste0(Sys.Date(),"-",basename(path)))
+chart_path <- function(file_name) {
+  file.path(output_root, paste0(Sys.Date(),"-", file_name))
 }
 
 ## If you need to install Open Sans for Mastodon theme. Make sure Open Sans is downloaded and installed.
@@ -113,7 +116,7 @@ date_after <- function(date) {
   date + runif(length(date), min = 0, max = interval(date, next_year) / days(1))
 }
 
-episodes <- read.csv("./data/suffolk.scrubbed.new.csv", header = TRUE, stringsAsFactors = FALSE, na.strings ="NA")
+episodes <- read.csv(scrubbed_episodes, header = TRUE, stringsAsFactors = FALSE, na.strings ="NA")
 episodes$report_date <- ymd(episodes$report_date)
 episodes$ceased <- ymd(episodes$ceased)
 
@@ -147,9 +150,9 @@ impute.quantiles <- function(df) {
   res
 }
 
-write.csv(impute.quantiles(quantiles$quantile), "data/duration-model-median.csv", row.names = FALSE)
-write.csv(impute.quantiles(quantiles$lower), "data/duration-model-lower.csv", row.names = FALSE)
-write.csv(impute.quantiles(quantiles$upper), "data/duration-model-upper.csv", row.names = FALSE)
+write.csv(impute.quantiles(quantiles$quantile), paste0(output_root, "/duration-model-median.csv"), row.names = FALSE)
+write.csv(impute.quantiles(quantiles$lower), paste0(output_root, "/duration-model-lower.csv"), row.names = FALSE)
+write.csv(impute.quantiles(quantiles$upper), paste0(output_root, "/duration-model-upper.csv"), row.names = FALSE)
 
 ## Create phase durations
 
@@ -306,9 +309,9 @@ transitions_summary %>%
   facet_wrap(vars(age), nrow = 3) +
   theme_mastodon +
   scale_fill_manual(values = my.colours) +
-  labs(title = NULL, fill = "Next placement", x = "Transition year", y = "Proportion of transitions per year")
+  labs(fill = "Next placement", x = "Transition year", y = "Proportion of transitions per year", title = chart_title("Next Placement Proportions"))
 
-ggsave(chart_path("suffolk-q2-transitions-age-zoom.png"), width = 14, height = 7)
+ggsave(chart_path("next-placement-proportions.png"), width = 14, height = 7)
 
 ## Leaver rate by month
 dates <-  data.frame(day = seq(as.Date("2015-03-01"), as.Date("2018-03-01"), "month"),
@@ -367,7 +370,7 @@ ggplot(grid.all, aes(x = beginning, y = projection, color = admission_age)) +
   geom_line(aes(linetype = input)) +
   facet_wrap(vars(admission_age), scale = "free") +
   scale_color_manual(values = tableau_color_pal("Tableau 20")(20), guide = "none") +
-  labs(x = "Date", y = "Inter-arrival time (days)", title = "Projected mean inter-arrival time by age of entry (3 & 4 years historic data)",
+  labs(x = "Date", y = "Inter-arrival time (days)", title = chart_title("Projected mean inter-arrival time by age of entry (3 & 4 years historic data)"),
        linetype = "Input history")
 
 ggplot(grid.all, aes(x = beginning, y = projection)) +
@@ -376,10 +379,11 @@ ggplot(grid.all, aes(x = beginning, y = projection)) +
   facet_wrap(vars(admission_age), scale = "free") +
   coord_cartesian(ylim = c(0, 100)) +
   scale_color_manual(values = tableau_color_pal("Tableau 20")(20), guide = "none") +
-  labs(x = "Date", y = "Inter-arrival time (days)", title = "Projected mean inter-arrival time by age of entry (3 & 4 years historic data)",
+  labs(x = "Date", y = "Inter-arrival time (days)", title = chart_title("Projected mean inter-arrival time by age of entry (3 & 4 years historic data)"),
        linetype = "Input history", fill = "Input history")
 
 
+## TODO: Do this as a loop and save each one
 admission.age = 3
 grid.all %>%
   filter(admission_age == admission.age) %>%
@@ -389,7 +393,7 @@ grid.all %>%
   geom_point(data = diffs %>% filter(admission_age == admission.age), aes(beginning, diff)) +
   coord_cartesian(ylim = c(0, 100)) +
   scale_color_manual(values = tableau_color_pal("Tableau 20")(20), guide = "none") +
-  labs(x = "Date", y = "Inter-arrival time (days)", title = "Projected mean inter-arrival time by age of entry (3 & 4 years historic data)",
+  labs(x = "Date", y = "Inter-arrival time (days)", title = chart_title("Projected mean inter-arrival time by age of entry (3 & 4 years historic data)"),
        linetype = "Input history", fill = "Input history")
 
 ## NHpoisson
