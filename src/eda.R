@@ -373,6 +373,8 @@ grid3 <- joiner.projection(diffs, max_date - years(3), max_date + years(5))
 grid4 <- joiner.projection(diffs, max_date - years(4), max_date + years(5))
 grid.all <- rbind(cbind(grid3, input = "3 years"), cbind(grid4, input = "4 years"))
 
+write.csv(grid.all, file = paste0(output_root, "projected-mean-arrival-time.csv"))
+
 ggplot(grid.all, aes(x = beginning, y = projection, color = admission_age)) +
   geom_line(aes(linetype = input)) +
   facet_wrap(vars(admission_age), scale = "free") +
@@ -389,6 +391,7 @@ ggplot(grid.all, aes(x = beginning, y = projection)) +
   labs(x = "Date", y = "Inter-arrival time (days)", title = chart_title("Projected mean inter-arrival time by age of entry (3 & 4 years historic data)"),
        linetype = "Input history", fill = "Input history")
 
+ggsave(chart_path("projected-mean-interarrival-by-age-3-4-yrs.png"), width = 14, height = 7)
 
 ## TODO: Do this as a loop and save each one
 admission.age = 3
