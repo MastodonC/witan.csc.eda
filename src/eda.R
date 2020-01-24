@@ -13,11 +13,10 @@ library(zoo)
 library(networkD3)
 library(fitdistrplus)
 
-output_root <- "/home/bld/wip/cic/witan.csc.eda/data/Suffolk"
-
 ## Update with name of local authority
-la_label <- "Suffolk"
-scrubbed_episodes <- "/home/bld/wip/cic-data/Suffolk/Suffolk processed data/2020-01-15/episodes.scrubbed.csv"
+output_root <- "absolute path to output directory"
+la_label <- "LA Name"
+scrubbed_episodes <- "absolute path to episodes.scrubbed.csv"
 districts <- c("LA", "Districts", "Here")
 
 chart_title <- function(title){
@@ -345,7 +344,7 @@ unique(results$end)
 library(arm)
 from <- max_date - years(3)
 to <- max_date + years(5)
-grid<- expand.grid(admission_age = factor(as.character(0:17), levels = as.character(0:17)), beginning = seq(from,to,'weeks'))
+grid <- expand.grid(admission_age = factor(as.character(0:17), levels = as.character(0:17)), beginning = seq(from,to,'weeks'))
 
 diffs <- periods %>%
   arrange(admission_age, beginning) %>%
