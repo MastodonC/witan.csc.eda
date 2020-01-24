@@ -29,9 +29,9 @@ chart_path <- function(file_name) {
 }
 
 ## If you need to install Open Sans for Mastodon theme. Make sure Open Sans is downloaded and installed.
-install.packages("extrafont")
+# install.packages("extrafont")
 library(extrafont)
-font_import()
+# font_import()
 ## End font import
 
 theme_mastodon <- theme(plot.title = element_text(family = "OpenSans-Bold", hjust = 0.5, size = 20,
