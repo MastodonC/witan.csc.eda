@@ -258,6 +258,11 @@ for (year in max_year:min_year) {
 
 ## Transitions start here:
 
+
+## Area charts & total CiC
+min_date <- min(episodes$ceased, na.rm = TRUE)
+max_date <- max(episodes$ceased, na.rm = TRUE)
+
 dates <-  data.table(day = seq(min_date, max_date, "day"))
 
 episodes_table <- episodes %>%
@@ -644,10 +649,6 @@ ggplot(results %>% filter(period_id %in% candidates), aes(offset, factor(period_
   theme_mastodon
 
 ggsave(chart_path("cake-plot.png"), width = 11, height = 8)
-
-## Area charts & total CiC
-min_date <- min(episodes$ceased, na.rm = TRUE)
-max_date <- max(episodes$ceased, na.rm = TRUE)
 
 dates <- data.table(date = seq(min_date, max_date, by = 7))
 episodes_table <- as.data.table(episodes %>% mutate(ceased = ifelse(is.na(ceased), as.Date("2050-01-01"), episodes$ceased)))
