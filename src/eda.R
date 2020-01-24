@@ -341,11 +341,22 @@ ggsave(chart_path("ceasers-by-month.png"), width = 14, height = 7)
 unique(results$end)
 
 ## Estimate trend in arrivals by age
-install.packages("arm")
+# install.packages("arm")
 library(arm)
 from <- max_date - years(3)
 to <- max_date + years(5)
 grid<- expand.grid(admission_age = factor(as.character(0:17), levels = as.character(0:17)), beginning = seq(from,to,'weeks'))
+
+diffs <- periods %>%
+  arrange(admission_age, beginning) %>%
+  group_by(admission_age) %>%
+  mutate(diff = interval(lag(beginning), beginning) / days(1), n = n()) %>%
+  ungroup %>%
+  filter(!is.na(diff) & n >= 3) %>% # We need at least 3 data points for each age to generate 2 diffs
+  dplyr::select(admission_age, diff, beginning) %>%
+  mutate(diff = diff + 0.01) %>% # Diff must always be greater than zero
+  as.data.frame
+
 joiners.model <- bayesglm(diff ~ beginning * admission_age, data = diffs %>% filter(beginning >= from), family=Gamma(link = log))
 
 joiner.projection <- function(diffs, from, to) {
@@ -357,16 +368,6 @@ joiner.projection <- function(diffs, from, to) {
     mutate(projection  = ilink(fit_link), upper_ci = ilink(fit_link + (1.96 * se_link)), lower_ci = ilink(fit_link - (1.96 * se_link)))
   grid
 }
-
-diffs <- periods %>%
-  arrange(admission_age, beginning) %>%
-  group_by(admission_age) %>%
-  mutate(diff = interval(lag(beginning), beginning) / days(1), n = n()) %>%
-  ungroup %>%
-  filter(!is.na(diff) & n >= 3) %>% # We need at least 3 data points for each age to generate 2 diffs
-  dplyr::select(admission_age, diff, beginning) %>%
-  mutate(diff = diff + 0.01) %>% # Diff must always be greater than zero
-  as.data.frame
 
 max_date <- max(periods$end, na.rm = TRUE)
 grid3 <- joiner.projection(diffs, max_date - years(3), max_date + years(5))
