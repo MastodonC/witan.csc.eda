@@ -465,6 +465,7 @@ for (age in as.character(0:17)) {
 result <- 0
 n.times <- 1000
 d <- 0.5
+## FIXME: DOB not found
 for (i in 1:n.times){
   data <- sample_n(periods, nrow(periods), replace = TRUE)
   data <- data %>% mutate(birthday = date_after(if_else(year(beginning) == DOB, beginning, ymd(paste0(DOB, "-01-01")))))  %>%
