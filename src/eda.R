@@ -11,6 +11,7 @@ library(survival)
 library(survminer)
 library(zoo)
 library(networkD3)
+library(fitdistrplus)
 
 ## Update with name of local authority
 la_label <- "Your_LA_Here"
@@ -170,6 +171,29 @@ quantiles <- rbind(cbind(quantile = 0:100, melt(q_first), label = "first"),
 write.csv(data.frame(label = c("First", "Rest"), param = c(fit_first$estimate, fit_rest$estimate)), "data/phase-durations.csv", row.names = FALSE)
 write.csv(quantiles, "data/phase-duration-quantiles.csv", row.names = FALSE)
 
+## Create beta params
+
+phases <- episodes %>%
+  group_by(period_id, phase_id) %>%
+  summarise(age = year_diff(min(birthday), min(report_date)),
+            phase_duration = day_diff(min(report_date), max(ceased)),
+            report_date = min(report_date),
+            ceased = max(ceased)) %>%
+  mutate(total_duration = day_diff(min(report_date), max(ceased)),
+         phase_count = n_distinct(phase_id)) %>%
+  mutate(phase_p = phase_duration / total_duration)
+
+beta_params <- data.frame(age = c(), alpha = c(), beta = c())
+for (age.x in 0:17) {
+  xs <- (phases %>% filter(age == age.x & phase_p > 0 & phase_p < 1))$phase_p
+  fit <- fitdist(xs, "beta")
+  beta_params <- rbind(beta_params, data.frame(age = age.x, alpha = fit$estimate["shape1"], beta = fit$estimate["shape2"]))
+}
+
+bernoulli_params <- phases.correlate.p %>% filter(!is.na(phase_p)) %>% group_by(age) %>% summarise(alpha = sum(phase_p != 1), beta = sum(phase_p == 1.0))
+
+write.csv(beta_params, "data/phase-beta-params.csv", row.names = FALSE)
+write.csv(bernoulli_params, "data/phase-bernoulli-params.csv", row.names = FALSE)
 
 ## Create joiner probabilities
 
