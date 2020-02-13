@@ -373,7 +373,7 @@ grid3 <- joiner.projection(diffs, max_date - years(3), max_date + years(5))
 grid4 <- joiner.projection(diffs, max_date - years(4), max_date + years(5))
 grid.all <- rbind(cbind(grid3, input = "3 years"), cbind(grid4, input = "4 years"))
 
-write.csv(grid.all, file = paste0(output_root, "projected-mean-arrival-time.csv"))
+write.csv(grid.all, file = paste0(output_root, "/projected-mean-arrival-time.csv"))
 
 ggplot(grid.all, aes(x = beginning, y = projection, color = admission_age)) +
   geom_line(aes(linetype = input)) +
