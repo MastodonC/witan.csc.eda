@@ -138,7 +138,7 @@ periods$admission_age = factor(periods$admission_age)
 
 ## Output duration quantiles
 
-fit <- survfit(Surv(duration, event) ~ admission_age, data = periods %>% filter(as.integer(as.character(admission_age)) < 18))
+fit <- survfit(Surv(duration, event) ~ admission_age, data = periods %>% filter(as.integer(as.character(admission_age)) < 18) %>% filter(as.integer(as.character(admission_age)) > -1))
 quantiles <- quantile(fit, probs = seq(0,1,length.out = 101))
 
 impute.quantiles <- function(df) {
@@ -148,6 +148,8 @@ impute.quantiles <- function(df) {
   colnames(res) <- c("age", 0:100)
   res
 }
+
+impute.quantiles(quantiles$quantile)
 
 write.csv(impute.quantiles(quantiles$quantile), paste0(output_root, "/duration-model-median.csv"), row.names = FALSE)
 write.csv(impute.quantiles(quantiles$lower), paste0(output_root, "/duration-model-lower.csv"), row.names = FALSE)
