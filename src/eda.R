@@ -11,6 +11,7 @@ library(survival)
 library(survminer)
 library(zoo)
 library(networkD3)
+library(fitdistrplus)
 
 ## Update with name of local authority
 la_label <- "Your_LA_Here"
@@ -112,7 +113,7 @@ date_after <- function(date) {
   date + runif(length(date), min = 0, max = interval(date, next_year) / days(1))
 }
 
-episodes <- read.csv("./data/episodes.scrubbed.csv", header = TRUE, stringsAsFactors = FALSE, na.strings ="NA")
+episodes <- read.csv("./data/suffolk.scrubbed.new.csv", header = TRUE, stringsAsFactors = FALSE, na.strings ="NA")
 episodes$report_date <- ymd(episodes$report_date)
 episodes$ceased <- ymd(episodes$ceased)
 
@@ -149,6 +150,71 @@ impute.quantiles <- function(df) {
 write.csv(impute.quantiles(quantiles$quantile), "data/duration-model-median.csv", row.names = FALSE)
 write.csv(impute.quantiles(quantiles$lower), "data/duration-model-lower.csv", row.names = FALSE)
 write.csv(impute.quantiles(quantiles$upper), "data/duration-model-upper.csv", row.names = FALSE)
+
+## Create phase durations
+
+phases <- episodes %>% group_by(period_id, phase_id) %>%
+  summarise(phase_duration_days = day_diff(min(report_date), max(ceased))) %>%
+  mutate(first_phase = row_number() == 1) %>%
+  filter(!is.na(phase_duration_days))
+
+
+fit_first <- fitdistr(phases[phases$first_phase == TRUE,]$phase_duration_days, "Poisson")
+fit_rest <- fitdistr(phases[phases$first_phase == FALSE,]$phase_duration_days, "Poisson")
+
+q_first <- quantile(na.omit(phases[phases$first_phase == TRUE,]$phase_duration_days), probs = seq(0,1,length.out = 101))
+q_rest <- quantile(na.omit(phases[phases$first_phase == FALSE,]$phase_duration_days), probs = seq(0,1,length.out = 101))
+
+quantiles <- rbind(cbind(quantile = 0:100, melt(q_first), label = "first"),
+                   cbind(quantile = 0:100, melt(q_rest), label = "rest"))
+
+write.csv(data.frame(label = c("First", "Rest"), param = c(fit_first$estimate, fit_rest$estimate)), "data/phase-durations.csv", row.names = FALSE)
+write.csv(quantiles, "data/phase-duration-quantiles.csv", row.names = FALSE)
+
+## Create beta params
+
+phases <- episodes %>%
+  group_by(period_id, phase_id) %>%
+  summarise(age = year_diff(min(birthday), min(report_date)),
+            phase_duration = day_diff(min(report_date), max(ceased)),
+            report_date = min(report_date),
+            ceased = max(ceased)) %>%
+  mutate(total_duration = day_diff(min(report_date), max(ceased)),
+         phase_count = n_distinct(phase_id)) %>%
+  mutate(phase_p = phase_duration / total_duration)
+
+beta_params <- data.frame(age = c(), alpha = c(), beta = c())
+for (age.x in 0:17) {
+  xs <- (phases %>% filter(age == age.x & phase_p > 0 & phase_p < 1))$phase_p
+  fit <- fitdist(xs, "beta")
+  beta_params <- rbind(beta_params, data.frame(age = age.x, alpha = fit$estimate["shape1"], beta = fit$estimate["shape2"]))
+}
+
+bernoulli_params <- phases.correlate.p %>% filter(!is.na(phase_p)) %>% group_by(age) %>% summarise(alpha = sum(phase_p != 1), beta = sum(phase_p == 1.0))
+
+write.csv(beta_params, "data/phase-beta-params.csv", row.names = FALSE)
+write.csv(bernoulli_params, "data/phase-bernoulli-params.csv", row.names = FALSE)
+
+## Create joiner probabilities
+
+joiner_placements <- periods %>% group_by(admission_age, first_placement) %>% summarise(n = n())
+
+write.csv(joiner_placements, "data/joiner-placements.csv", row.names = FALSE)
+
+## Create transition matrix
+
+transition_counts <- episodes %>% group_by(period_id, phase_id) %>%
+  summarise(birthday = birthday[1], transition_date = max(ceased), transition_from = placement[1]) %>%
+  filter(!is.na(transition_date)) %>%
+  mutate(first_transition = row_number() == 1, transition_to = lead(transition_from), transition_age = year_diff(birthday, transition_date)) %>%
+  group_by(first_transition, transition_age, transition_from, transition_to) %>%
+  summarise(n = n()) %>%
+  filter(!is.na(transition_to)) %>%
+  mutate(m = sum(n))
+
+transition_counts[is.na(transition_counts$transition_age),]
+
+write.csv(transition_counts, "data/phase-transitions.csv", row.names = FALSE)
 
 ## Look for policy changes
 
@@ -260,7 +326,7 @@ dates %>% full_join(periods_table) %>%
   ggplot(aes(day, cease_rate)) +
   geom_bar(stat = "identity", fill = my.colours[1]) +
   theme_mastodon +
-  labs(y = "Cease rate", )
+  labs(y = "Cease rate", title = "Suffolk cease rate")
 
 unique(results$end)
 

@@ -87,6 +87,11 @@ year_diff <- function(start, stop) {
   as.numeric(difftime(stop, start, units = "days")) %/% 365.25
 }
 
+day_diff <- function(start, stop) {
+  as.numeric(difftime(stop, start, units = "days"))
+}
+
+
 
 episodes2periods <- function(episodes) {
   latest_cease <- max(episodes[!is.na(episodes$ceased),]$ceased)
@@ -112,7 +117,7 @@ date_after <- function(date) {
   date + runif(length(date), min = 0, max = interval(date, next_year) / days(1))
 }
 
-episodes <- read.csv("./data/cambridgeshire.scrubbed.csv", header = TRUE, stringsAsFactors = FALSE, na.strings ="NA")
+episodes <- read.csv("./data/episodes.scrubbed.csv", header = TRUE, stringsAsFactors = FALSE, na.strings ="NA")
 episodes$report_date <- ymd(episodes$report_date)
 episodes$ceased <- ymd(episodes$ceased)
 
@@ -173,7 +178,6 @@ episodes %>%
 ## Leaver joiner mover rate by age
 
 ages <-  data.frame(age = 0:17)
-
 period_birthdays <- episodes %>% dplyr::select(period_id, birthday) %>% unique %>% mutate(join = "x")
 ages <- data.frame(age = 0:17, join = "x")
 period_ages <- period_birthdays %>% inner_join(ages, by = "join") %>%
@@ -188,7 +192,7 @@ period_age_placements <- period_ages %>%
   filter(date >= report_date & (is.na(ceased) | ceased > date))
 
 
-transitions <- period_age_placements %>% filter(date < as.Date("2018-03-31")) %>% dplyr::select(period_id, age, placement) %>% 
+transitions <- period_age_placements %>% filter(date < as.Date("2018-03-31")) %>% dplyr::select(period_id, age, placement) %>%
   inner_join(period_age_placements %>% dplyr::select(period_id, age, placement), by = "period_id") %>%
   filter(age.x == age.y - 1) %>%
   mutate(next_placement = ifelse(placement.y == "OUT", "Cease", ifelse(placement.y == placement.x, "Remain", "Move"))) %>%
@@ -241,7 +245,7 @@ period_age_placements <- period_ages %>%
   filter(date >= report_date & (is.na(ceased) | ceased > date))
 
 
-transitions <- period_age_placements %>% filter(date < as.Date("2018-03-31")) %>% dplyr::select(period_id, age, placement) %>% 
+transitions <- period_age_placements %>% filter(date < as.Date("2018-03-31")) %>% dplyr::select(period_id, age, placement) %>%
   inner_join(period_age_placements %>% dplyr::select(period_id, age, placement), by = "period_id") %>%
   filter(age.x == age.y - 1) %>%
   mutate(next_placement = ifelse(placement.y == "OUT", "Cease", ifelse(placement.y == placement.x, "Remain", "Move"))) %>%
@@ -399,3 +403,298 @@ summary(model.2)
 grid %>%
   inner_join(volatility, by = "phase1_id") %>%
   filter(age == 6 & yrs == 3)
+
+
+## Remove noisy transitions
+
+closed.periods <- (periods %>% filter(event == 1))$period_id
+
+phases <- episodes %>% filter(period_id %in% closed.periods) %>%
+  group_by(ID, period_id, phase_id) %>%
+  summarise(placement_start = min(report_date),
+            placement_end = max(ceased),
+            placement = placement[1],
+            birthday = birthday[1]) %>%
+  mutate(period_start = min(placement_start),
+         period_end = max(placement_end),
+         duration_days = day_diff(placement_start, placement_end)) %>%
+  filter(duration_days > 30)
+
+phases <- phases %>% arrange(period_id, report_date)
+new_phases <- coalesce(phases$period_id == lag(phases$period_id) & phases$placement != lag(phases$placement), FALSE)
+phases$phase_number <- ave(ifelse(new_phases, 1.0, 0.0), phases$period_id, FUN = cumsum) + 1
+phases$phase_id <- paste0(phases$period_id, "-", phases$phase_number)
+
+## Re-phase having removed noise, just in case we have two consecutive of the same placement
+phases <- phases %>%
+  group_by(ID, period_id, phase_id) %>%
+  summarise(placement_start = min(placement_start),
+            placement_end = max(placement_end),
+            placement = placement[1],
+            birthday = birthday[1]
+            ) %>%
+  mutate(period_start = min(placement_start),
+         period_end = max(placement_end),
+         duration_days = day_diff(placement_start, placement_end))
+
+phases <- phases %>%
+  mutate(from_placement = lag(placement),
+         transition_date = lag(placement_end) + day_diff(lag(placement_end), placement_start)/2,
+         to_placement = lead(placement)) %>%
+  as.data.frame
+
+phases %>% mutate(duration_days = day_diff(placement_start, placement_end)) %>%
+  filter(duration_days < 365) %>%
+  ggplot(aes(duration_days)) +
+  geom_histogram()
+
+# We want to know two things:
+# Probability of transition per year?
+# Probability of transition to?
+# Plus:
+# Amount of additional volatility
+
+## First placement
+
+phases %>%
+  group_by(period_id) %>%
+  summarise(first_placement = placement[1],
+            duration_yrs = year_diff(min(period_start), max(period_end)),
+            join_age = year_diff(min(birthday), min(placement_start))) %>%
+  group_by(duration_yrs, join_age, first_placement) %>%
+  summarise(n = n()) %>%
+  ggplot(aes(duration_yrs, n, fill= first_placement)) +
+  facet_wrap(vars(join_age), scales = "free_y") +
+  geom_bar(stat = "identity") +
+  theme_mastodon +
+  scale_fill_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  labs(title = "Duration in care vs first placement faceted by joiner age")
+
+## Looks like duration really only makes a difference on first placement when < 1 year in care total
+
+phases %>%
+  group_by(period_id) %>%
+  summarise(first_placement = placement[1],
+            duration_yrs = year_diff(min(period_start), max(period_end)),
+            duration_category = ifelse(year_diff(min(period_start), max(period_end)) < 1, "Short stay", "Long stay"),
+            join_age = year_diff(min(birthday), min(placement_start))) %>%
+  group_by(duration_category, join_age, first_placement) %>%
+  summarise(n = n()) %>%
+  ggplot(aes(duration_category, n, fill= first_placement)) +
+  facet_wrap(vars(join_age), scales = "free_y") +
+  geom_bar(stat = "identity") +
+  theme_mastodon +
+  scale_fill_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  labs(title = "Duration in care vs first placement faceted by joiner age")
+
+## Given zero age short stay joiner, next transition probaility by time
+## Given zero age long stay joiner, next transition probability by time
+
+phases %>%
+  group_by(period_id) %>%
+  mutate(phase_number = row_number(),
+         duration_category = ifelse(year_diff(min(period_start), max(period_end)) < 1, "Short stay", "Long stay")) %>%
+  ungroup %>%
+  filter(year_diff(birthday, period_start) <= 1 &
+         duration_category == "Long stay" &
+         from_placement == "Q2") %>%
+  mutate(first_placement_duration = floor(day_diff(period_start, placement_start) * 180) / 180) %>%
+  ggplot(aes(first_placement_duration, fill = placement)) +
+  geom_bar() +
+  theme_mastodon +
+  scale_fill_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  labs(title = "First transition destination by offset year")
+
+## Let's include all first transitions
+
+phases <- episodes %>%
+  group_by(ID, period_id, phase_id) %>%
+  summarise(placement_start = min(report_date),
+            placement_end = max(ceased),
+            placement = placement[1],
+            birthday = birthday[1]) %>%
+  mutate(period_start = min(placement_start),
+         period_end = max(placement_end),
+         duration_days = day_diff(placement_start, placement_end)) %>%
+  filter(duration_days > 30 | is.na(placement_end))
+
+phases %>% filter(is.na(period_end))
+phases %>% filter(is.na(placement_end))
+
+
+phases <- phases %>% arrange(period_id, placement_start)
+new_phases <- coalesce(phases$period_id == lag(phases$period_id) & phases$placement != lag(phases$placement), FALSE)
+phases$phase_number <- ave(ifelse(new_phases, 1.0, 0.0), phases$period_id, FUN = cumsum) + 1
+phases$phase_id <- paste0(phases$period_id, "-", phases$phase_number)
+
+phases %>% filter(is.na(period_end))
+phases %>% filter(is.na(placement_end))
+
+
+## Re-phase having removed noise, just in case we have two consecutive of the same placement
+phases <- phases %>%
+  group_by(ID, period_id, phase_id, period_end) %>%
+  summarise(placement_start = min(placement_start),
+            placement_end = max(placement_end),
+            placement = placement[1],
+            birthday = birthday[1]
+  ) %>%
+  mutate(period_start = min(placement_start),
+         placement_duration_days = day_diff(placement_start, placement_end),
+         period_duration_days = day_diff(period_start, period_end))
+
+phases %>% filter(is.na(period_end))
+phases %>% filter(is.na(placement_end))
+
+phases <- phases %>%
+  group_by(period_id) %>%
+  mutate(from_placement = lag(placement),
+         transition_date = lag(placement_end) + day_diff(lag(placement_end), placement_start)/2,
+         to_placement = lead(placement)) %>%
+  as.data.frame
+
+
+phases_gtyr <- phases %>%
+  filter(period_start < as.Date("2018-03-31")) %>%
+  filter(is.na(period_end) | year_diff(period_start, period_end) >= 1)
+
+phases_gtyr <- phases_gtyr %>%
+  group_by(period_id) %>%
+  mutate(next_placement = ifelse(!is.na(placement_end) & is.na(lead(placement)), "OUT", lead(placement)))
+
+
+require(nnet)
+
+test <- multinom(next_placement ~ placement, data = phases_gtyr %>% filter(!is.na(next_placement) & !is.na(period_duration_days)))
+summary(test)
+plot(test)
+z<-summary(test)$coefficients/summary(test)$standard.errors
+z
+p <- (1 - pnorm(abs(z), 0, 1)) * 2
+p
+
+test2 <- multinom(next_placement ~ placement + period_duration_days, data = phases_gtyr %>% filter(!is.na(next_placement) & !is.na(period_duration_days)))
+summary(test2)
+plot(test2)
+z<-summary(test2)$coefficients/summary(test2)$standard.errors
+z
+p <- (1 - pnorm(abs(z), 0, 1)) * 2
+p
+
+anova(test, test2)
+
+test3 <- multinom(next_placement ~ placement + transition_age_days, data =
+phases_gtyr %>%
+  mutate(transition_age_days = day_diff(birthday, placement_start)) %>%
+  filter(!is.na(next_placement) & !is.na(period_duration_days)))
+
+anova(test, test3)
+
+test4 <- multinom(next_placement ~ placement + transition_age_days + transition_offset_days, data =
+                    phases_gtyr %>%
+                    mutate(transition_age_days = day_diff(birthday, placement_start),
+                           transition_offset_days = day_diff(period_start, placement_start)) %>%
+                    filter(!is.na(next_placement) & !is.na(period_duration_days)))
+
+anova(test3, test4)
+
+## No benefit to transition offset
+
+
+## Let's calculate 100 birthdays per period
+## Then we'll calculate probability of moving by month age
+
+end_date <- max(max(episodes$report_date), max(episodes$ceased, na.rm = TRUE))
+
+
+#
+# episodes_simulation <- episodes %>% group_by(period_id, DOB) %>%
+#   summarise(min_start = min(report_date),
+#             max_cease = max(ceased),
+#             join = "x") %>%
+#   inner_join(data.frame(simulation = 1:100, join = "x"))
+#
+# birthdays <- numeric(length = nrow(episodes_simulation))
+# for(i in 1:nrow(episodes_simulation)) {
+#   birthdays[i] <- imputed_birthday(episodes_simulation[i,]$DOB,
+#                                    episodes_simulation[i,]$min_start,
+#                                    coalesce(episodes_simulation[i,]$max_cease,end_date))
+# }
+# as.Date(birthdays)
+#
+# rep(2, 20)
+# date_between(as.Date("2010-02-23"),as.Date("2010-05-10"))
+
+episodes
+
+all_ages <- expand.grid(month = 1,
+                        year = 0:17,
+                        join = "x") %>%
+  mutate(age_seq = row_number())
+
+simulations <- data.frame(simulation = 1:10, join = "x")
+
+start_dates <- episodes %>%
+  group_by(period_id) %>%
+  summarise(DOB = DOB[1], min_start = min(report_date), max_cease = coalesce(max(ceased), end_date)) %>%
+  mutate(join = "x") %>%
+  inner_join(simulations) %>%
+  group_by(period_id, min_start, max_cease, simulation) %>%
+  summarise(birthday = imputed_birthday(DOB[1], min(min_start), max(max_cease))) %>%
+  mutate(join = "x")
+
+samples <- start_dates %>%
+  inner_join(all_ages) %>%
+  mutate(sample_date = birthday + days(floor(year * 365.25)) + days(floor(month * 30.25)))
+
+samples <- samples[,c("period_id", "sample_date", "age_seq")] %>%
+  inner_join(episodes[,c("period_id", "report_date", "ceased", "placement")], by = "period_id") %>%
+  filter(report_date <= sample_date & (is.na(ceased) | ceased > sample_date)) %>%
+  dplyr::select(period_id, sample_date, age_seq, placement)
+
+all.placements <- c("A3", "A4", "A5", "A6", "H5", "K1", "K2", "M2", "M3", "P1", "P2",
+                    "Q1","Q2", "R1", "R2", "R3", "R5", "S1", "T0", "T4", "Z1", "OUT")
+
+
+# Define the number of colors you want
+nb.cols <- 21
+my.colours <- colorRampPalette(tableau_color_pal("Tableau 20")(11))(nb.cols)
+my.colours <- c(my.colours, "#888888")
+names(my.colours) <- all.placements
+
+
+samples %>%
+  inner_join(samples, by = "period_id") %>%
+  filter(age_seq.x == age_seq.y - 1) %>%
+  group_by(age_seq.x, placement.x, placement.y) %>%
+  summarise(n = n() / 10) %>%
+  ggplot(aes(age_seq.x, n, fill = placement.y)) +
+  geom_bar(stat = "identity", position = "stack") +
+  facet_wrap(vars(placement.x), scales = "free_y") +
+  scale_fill_manual(values = my.colours) +
+  theme_mastodon +
+  labs(x = "Age", y = "Proportion", title = "Probability of remaining vs moving in placement by age")
+
+
+## Infer rates of transition
+
+
+phases %>%
+  filter(placement == "Q2" & placement_duration_days < 2000) %>%
+  mutate(placement_duration_months = floor(placement_duration_days / 30)) %>%
+  filter(!is.na(to_placement)) %>%
+  ggplot(aes(placement_duration_months, fill = to_placement)) +
+  geom_bar() +
+  theme_mastodon +
+  scale_fill_manual(values = my.colours,
+                    na.value="grey") +
+  labs(title = "Q2 timescle and follow-on placement (Suffolk)")
+
+phases %>%
+  group_by(period_id) %>%
+  summarise(n = n()) %>%
+  filter(n <= 5) %>%
+  ggplot(aes(n)) +
+  geom_histogram(bins = 5)
+
+## Much more likely to have 1 significant transition than a greater number
