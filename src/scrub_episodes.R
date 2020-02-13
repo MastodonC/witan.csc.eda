@@ -1,6 +1,10 @@
 library(dplyr)
 library(lubridate)
 
+## You need to set the paths to:
+## raw_episodes
+## scrubbed_episodes
+
 parse.dates <- function(episodes) {
   episodes$report_date <- ymd(episodes$report_date)
   episodes$ceased <- ymd(episodes$ceased)
@@ -44,7 +48,7 @@ assoc.phase.id <- function(episodes) {
   episodes
 }
 
-episodes <- read.csv("data/episodes.csv", header = TRUE, stringsAsFactors = FALSE, na.strings ="") %>%
+episodes <- read.csv(raw_episodes, header = TRUE, stringsAsFactors = FALSE, na.strings ="") %>%
   parse.dates %>%
   remove.stale.episodes %>%
   remap.placements %>%
@@ -56,4 +60,4 @@ respite.children <- episodes %>% group_by(period_id) %>% filter(length(unique(le
 respite.children$ID
 episodes <- episodes %>% filter(!ID %in% respite.children$ID)
 
-write.csv(episodes, "data/episodes.scrubbed.csv", na = "")
+write.csv(episodes, scrubbed_episodes, na = "")
