@@ -560,8 +560,10 @@ phases_gtyr <- phases %>%
 
 phases_gtyr <- phases_gtyr %>%
   group_by(period_id) %>%
-  mutate(next_placement = ifelse(!is.na(placement_end) & is.na(lead(placement)), "OUT", lead(placement)))
+  mutate(next_placement = ifelse(!is.na(placement_end) & is.na(lead(placement)), "OUT", lead(placement)),
+         first_transition_in_period = row_number() == 1)
 
+phases_gtyr %>% as.data.frame
 
 require(nnet)
 
@@ -698,5 +700,137 @@ phases %>%
   geom_histogram(bins = 5)
 
 ## Much more likely to have 1 significant transition than a greater number
+
+test5 <- multinom(next_placement ~ placement + transition_age_days + first_transition_in_period, data =
+                    phases_gtyr %>%
+                    mutate(transition_age_days = day_diff(birthday, placement_start)) %>%
+                    filter(!is.na(next_placement) & !is.na(period_duration_days)))
+
+anova(test3, test5)
+
+## Knowing if it's the first transition in the period is definitely significant
+
+?fitdistr
+
+phases_per_period <- phases %>% group_by(period_id) %>% summarise(n = n_distinct(phase_id)) %>% ungroup %>% as.data.frame
+
+fit <- fitdistr(phases_per_period$n - 1, "negative binomial")
+warnings()
+plot(fit)
+fit
+
+library(vcd)
+fit <- goodfit(phases_per_period$n - 1, "nbinomial")
+plot(fit)
+fit
+
+distplot(phases_per_period[phases_per_period$n < 6,]$n - 1, type = "nbinomial")
+
+size         mu    
+2.2885452   0.5287062 
+(0.3295263) (0.0143674)
+
+
+
+phases.2 <- phases %>% group_by(period_id) %>% mutate(phase_number = row_number(), first_phase = row_number() == 1, age_start = year_diff(birthday, placement_start))
+
+ggplot(phases.2 %>% filter(phase_number < 6), aes(placement_duration_days)) + geom_histogram() + facet_wrap(vars(phase_number), scales = "free_y")
+
+distplot(phases.2$placement_duration_days)
+
+m1 <- glm(placement_duration_days ~ 1, family="poisson", data = phases.2)
+m2 <- glm(placement_duration_days ~ first_phase, family="poisson", data = phases.2)
+m3 <- glm(placement_duration_days ~ phase_number, family="poisson", data = phases.2)
+m4 <- glm(placement_duration_days ~ first_phase + phase_number, family="poisson", data = phases.2)
+m5 <- glm(placement_duration_days ~ first_phase + phase_number + age_start, family="poisson", data = phases.2)
+m6 <- glm(placement_duration_days ~ first_phase, family="poisson", data = phases.2)
+m7 <- glm(placement_duration_days ~ age_start, family="poisson", data = phases.2)
+
+
+summary(m1)
+summary(m2)
+summary(m3)
+summary(m4)
+summary(m5)
+
+anova(m6, m7)
+
+plot(m1)
+
+fitdistr(na.omit(phases.2[phases.2$first_phase==FALSE,]$placement_duration_days), "Poisson")
+
+na.omit()
+
+m6.q <- glm(placement_duration_days ~ first_phase, family="quasipoisson", data = phases.2)
+
+quantiles <- quantile(m6.q, probs = seq(0,1,length.out = 101))
+
+
+quantile(na.omit(phases.2[phases.2$first_phase==TRUE,]$placement_duration_days), probs = seq(0,1,length.out = 101))
+
+
+summary(m6.q)
+plot(m6.q)
+
+
+phases.correlate <- episodes %>%
+  group_by(period_id, phase_id) %>%
+  summarise(age = year_diff(min(birthday), min(report_date)),
+            phase_duration = day_diff(min(report_date), max(ceased)),
+            report_date = min(report_date),
+            ceased = max(ceased)) %>%
+  mutate(total_duration = day_diff(min(report_date), max(ceased)),
+         phase_count = n_distinct(phase_id))
+
+ggplot(phases.correlate, aes(total_duration, phase_count)) + geom_point(position = "jitter")
+ggplot(phases.correlate, aes(log(phase_duration), phase_count)) + geom_point(position = "jitter")
+
+ggplot(phases.correlate, aes(phase_duration)) + geom_histogram() + facet_wrap(vars(age), scales = "free_y") + theme_mastodon
+
+ggplot(phases.correlate %>% mutate(phase_p = phase_duration / total_duration), aes(phase_p)) +
+  geom_histogram() +
+  facet_wrap(vars(age), scales = "free_y") + theme_mastodon +
+  labs(title = "Changing relative proportion of each phase by age")
+
+ggplot(phases.correlate %>% mutate(phase_p = phase_duration / total_duration), aes(phase_count)) +
+  geom_histogram() +
+  facet_wrap(vars(age), scales = "free_y") + theme_mastodon +
+  labs(title = "Phase counts by age")
+
+phases.correlate.p <- phases.correlate %>% mutate(phase_p = phase_duration / total_duration)
+
+library(fitdistrplus)
+beta_params <- data.frame(age = c(), alpha = c(), beta = c())
+for (age.x in 0:17) {
+  xs <- (phases.correlate.p %>% filter(age == age.x & phase_p > 0 & phase_p < 1))$phase_p
+  fit <- fitdist(xs, "beta")
+  beta_params <- rbind(beta_params, data.frame(age = age.x, alpha = fit$estimate["shape1"], beta = fit$estimate["shape2"]))
+}
+
+bernoulli_params <- phases.correlate.p %>% filter(!is.na(phase_p)) %>% group_by(age) %>% summarise(alpha = sum(phase_p != 1), beta = sum(phase_p == 1.0))
+write.csv(beta_params, "data/phase-beta-params.csv", row.names = FALSE)
+write.csv(bernoulli_params, "data/phase-bernoulli-params.csv", row.names = FALSE)
+
+
+Fitting of the distribution ' beta ' by maximum likelihood 
+Parameters:
+  estimate Std. Error
+shape1  35.25746   8.511331
+shape2 344.99152  83.815718
+
+plot(fit, las = 1) # Checking fit
+
+
+ggplot(phases.correlate, aes(log(total_duration)))+ geom_histogram()
+ggplot(phases.correlate, aes(log(phase_duration)))+ geom_histogram()
+ggplot(phases.correlate, aes(phase_count))+ geom_histogram()
+
+phases.correlate <- phases.correlate %>%
+  mutate(log_total_duration = log(total_duration),
+         log_phase_duration = log(phase_duration)) %>%
+  filter(!is.na(log_total_duration) & !is.na(log_phase_duration))
+
+cor(phases.correlate$log_phase_duration,
+    phases.correlate$log_total_duration)
 
 
