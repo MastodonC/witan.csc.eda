@@ -334,7 +334,7 @@ transitions_summary %>%
   scale_fill_manual(values = my.colours) +
   labs(title = NULL, fill = "Next placement", x = "Transition year", y = "Proportion of transitions per year")
 
-ggsave(chart_path("suffolk-q2-transitions-age-zoom.png"), width = 14, height = 7)
+ggsave(chart_path("q2-transitions-age-zoom.png"), width = 14, height = 7)
 
 ## Leaver rate by month
 dates <-  data.frame(day = seq(as.Date("2015-03-01"), as.Date("2018-03-01"), "month"),
