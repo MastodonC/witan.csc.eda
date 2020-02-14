@@ -14,15 +14,23 @@ library(networkD3)
 library(fitdistrplus)
 
 ## Update with name of local authority
-la_label <- "Your_LA_Here"
-districts <- c("LA", "Districts", "Here")
+## la_label <- "Your_LA_Here"
+## districts <- c("LA", "Districts", "Here")
+## output_root <- root of where files should go
+## scrubbed_episodes <- path to input scrubbed.episodes.csv
+
+output_dir <- file.path(output_root, Sys.Date())
+
+## create our dated data output subdir if it doesn't exist
+if(!dir.exists(output_dir))
+    dir.create(output_dir)
 
 chart_title <- function(title){
   paste(la_label, "-", title)
 }
 
 chart_path <- function(path) {
-  file.path(dirname(path), paste0(Sys.Date(),"-",basename(path)))
+  file.path(output_dir, paste0(Sys.Date(),"-",basename(path)))
 }
 
 ## If you need to install Open Sans for Mastodon theme. Make sure Open Sans is downloaded and installed.
