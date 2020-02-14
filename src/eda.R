@@ -359,11 +359,23 @@ ggsave(chart_path("cease-rate.png"), width = 14, height = 7)
 unique(results$end)
 
 ## Estimate trend in arrivals by age
-install.packages("arm")
+## install.packages("arm")
 library(arm)
 from <- max_date - years(3)
 to <- max_date + years(5)
-grid<- expand.grid(admission_age = factor(as.character(0:17), levels = as.character(0:17)), beginning = seq(from,to,'weeks'))
+
+grid <- expand.grid(admission_age = factor(as.character(0:17), levels = as.character(0:17)), beginning = seq(from,to,'weeks'))
+
+diffs <- periods %>%
+  arrange(admission_age, beginning) %>%
+  group_by(admission_age) %>%
+  mutate(diff = interval(lag(beginning), beginning) / days(1), n = n()) %>%
+  ungroup %>%
+  filter(!is.na(diff) & n >= 3) %>% # We need at least 3 data points for each age to generate 2 diffs
+  dplyr::select(admission_age, diff, beginning) %>%
+  mutate(diff = diff + 0.01) %>% # Diff must always be greater than zero
+  as.data.frame
+
 joiners.model <- bayesglm(diff ~ beginning * admission_age, data = diffs %>% filter(beginning >= from), family=Gamma(link = log))
 
 joiner.projection <- function(diffs, from, to) {
@@ -376,16 +388,6 @@ joiner.projection <- function(diffs, from, to) {
   grid
 }
 
-diffs <- periods %>%
-  arrange(admission_age, beginning) %>%
-  group_by(admission_age) %>%
-  mutate(diff = interval(lag(beginning), beginning) / days(1), n = n()) %>%
-  ungroup %>%
-  filter(!is.na(diff) & n >= 3) %>% # We need at least 3 data points for each age to generate 2 diffs
-  dplyr::select(admission_age, diff, beginning) %>%
-  mutate(diff = diff + 0.01) %>% # Diff must always be greater than zero
-  as.data.frame
-
 max_date <- max(periods$end, na.rm = TRUE)
 grid3 <- joiner.projection(diffs, max_date - years(3), max_date + years(5))
 grid4 <- joiner.projection(diffs, max_date - years(4), max_date + years(5))
@@ -395,7 +397,7 @@ ggplot(grid.all, aes(x = beginning, y = projection, color = admission_age)) +
   geom_line(aes(linetype = input)) +
   facet_wrap(vars(admission_age), scale = "free") +
   scale_color_manual(values = tableau_color_pal("Tableau 20")(20), guide = "none") +
-  labs(x = "Date", y = "Inter-arrival time (days)", title = "Projected mean inter-arrival time by age of entry (3 & 4 years historic data)",
+  labs(x = "Date", y = "Inter-arrival time (days)", title = chart_title("Projected mean inter-arrival time by age of entry (3 & 4 years historic data)"),
        linetype = "Input history")
 
 ggplot(grid.all, aes(x = beginning, y = projection)) +
@@ -404,9 +406,10 @@ ggplot(grid.all, aes(x = beginning, y = projection)) +
   facet_wrap(vars(admission_age), scale = "free") +
   coord_cartesian(ylim = c(0, 100)) +
   scale_color_manual(values = tableau_color_pal("Tableau 20")(20), guide = "none") +
-  labs(x = "Date", y = "Inter-arrival time (days)", title = "Projected mean inter-arrival time by age of entry (3 & 4 years historic data)",
+  labs(x = "Date", y = "Inter-arrival time (days)", title = chart_title("Projected mean inter-arrival time by age of entry (3 & 4 years historic data)"),
        linetype = "Input history", fill = "Input history")
 
+ggsave(chart_path("inter-arrival-time.png"), width = 14, height = 7)
 
 admission.age = 3
 grid.all %>%
