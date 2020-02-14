@@ -204,7 +204,9 @@ for (age.x in 0:17) {
 
 ## FIXME Error in eval(lhs, parent, parent) :
 ##   object 'phases.correlate.p' not found
-bernoulli_params <- phases.correlate.p %>% filter(!is.na(phase_p)) %>% group_by(age) %>% summarise(alpha = sum(phase_p != 1), beta = sum(phase_p == 1.0))
+## bernoulli_params <- phases.correlate.p %>% filter(!is.na(phase_p)) %>% group_by(age) %>% summarise(alpha = sum(phase_p != 1), beta = sum(phase_p == 1.0))
+## Trying this. Seems to work.
+bernoulli_params <- phases %>% filter(!is.na(phase_p)) %>% group_by(age) %>% summarise(alpha = sum(phase_p != 1), beta = sum(phase_p == 1.0))
 
 write.csv(beta_params, "data/phase-beta-params.csv", row.names = FALSE)
 write.csv(bernoulli_params, "data/phase-bernoulli-params.csv", row.names = FALSE)
