@@ -155,9 +155,9 @@ impute.quantiles <- function(df) {
   res
 }
 
-write.csv(impute.quantiles(quantiles$quantile), "data/duration-model-median.csv", row.names = FALSE)
-write.csv(impute.quantiles(quantiles$lower), "data/duration-model-lower.csv", row.names = FALSE)
-write.csv(impute.quantiles(quantiles$upper), "data/duration-model-upper.csv", row.names = FALSE)
+write.csv(impute.quantiles(quantiles$quantile), file.path(output_dir, "duration-model-median.csv"), row.names = FALSE)
+write.csv(impute.quantiles(quantiles$lower), file.path(output_dir, "duration-model-lower.csv"), row.names = FALSE)
+write.csv(impute.quantiles(quantiles$upper), file.path(output_dir, "duration-model-upper.csv"), row.names = FALSE)
 
 ## Create phase durations
 
