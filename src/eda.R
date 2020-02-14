@@ -889,6 +889,7 @@ ggsave(chart_path("joiners-leaver-rate.png"), width = 11, height = 8)
 
 ## Where is leaver rate changing most? By age, by placement?
 
+## FIXME: DOB not found
 monthly_leavers_age <- periods %>%
   mutate(month = floor_date(end, "month"),
          exit_age = round(as.numeric(end - as.Date(paste0(DOB,"-07-31"))) / 365.0)) %>%
