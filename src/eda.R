@@ -411,6 +411,7 @@ ggplot(grid.all, aes(x = beginning, y = projection)) +
 
 ggsave(chart_path("inter-arrival-time.png"), width = 14, height = 7)
 
+## TODO: loop through all ages for these charts
 admission.age = 3
 grid.all %>%
   filter(admission_age == admission.age) %>%
