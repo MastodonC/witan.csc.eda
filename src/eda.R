@@ -732,6 +732,7 @@ ggplot(results, aes(date, fill = placement)) +
 
 ggsave(chart_path("placement.png"), width = 11, height = 8)
 
+## TODO: Get the districts sorted to drive this loop
 snpp <- read.csv("2016 SNPP Population persons.csv")
 length(unique(snpp[snpp$AREA_NAME %in% districts,"AREA_NAME"]))
 snpp_la <- colSums(snpp[snpp$AREA_NAME %in% districts & snpp$AGE_GROUP %in% 0:17, 6:ncol(snpp)])
