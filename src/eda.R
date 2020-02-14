@@ -208,8 +208,8 @@ for (age.x in 0:17) {
 ## Trying this. Seems to work.
 bernoulli_params <- phases %>% filter(!is.na(phase_p)) %>% group_by(age) %>% summarise(alpha = sum(phase_p != 1), beta = sum(phase_p == 1.0))
 
-write.csv(beta_params, "data/phase-beta-params.csv", row.names = FALSE)
-write.csv(bernoulli_params, "data/phase-bernoulli-params.csv", row.names = FALSE)
+write.csv(beta_params, file.path(output_dir, "phase-beta-params.csv"), row.names = FALSE)
+write.csv(bernoulli_params, file.path(output_dir, "phase-bernoulli-params.csv"), row.names = FALSE)
 
 ## Create joiner probabilities
 
