@@ -121,7 +121,7 @@ date_after <- function(date) {
   date + runif(length(date), min = 0, max = interval(date, next_year) / days(1))
 }
 
-episodes <- read.csv("./data/suffolk.scrubbed.new.csv", header = TRUE, stringsAsFactors = FALSE, na.strings ="NA")
+episodes <- read.csv(scrubbed_episodes, header = TRUE, stringsAsFactors = FALSE, na.strings ="NA")
 episodes$report_date <- ymd(episodes$report_date)
 episodes$ceased <- ymd(episodes$ceased)
 
