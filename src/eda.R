@@ -202,6 +202,8 @@ for (age.x in 0:17) {
   beta_params <- rbind(beta_params, data.frame(age = age.x, alpha = fit$estimate["shape1"], beta = fit$estimate["shape2"]))
 }
 
+## FIXME Error in eval(lhs, parent, parent) :
+##   object 'phases.correlate.p' not found
 bernoulli_params <- phases.correlate.p %>% filter(!is.na(phase_p)) %>% group_by(age) %>% summarise(alpha = sum(phase_p != 1), beta = sum(phase_p == 1.0))
 
 write.csv(beta_params, "data/phase-beta-params.csv", row.names = FALSE)
