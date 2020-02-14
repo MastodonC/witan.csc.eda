@@ -352,7 +352,9 @@ dates %>% full_join(periods_table) %>%
   ggplot(aes(day, cease_rate)) +
   geom_bar(stat = "identity", fill = my.colours[1]) +
   theme_mastodon +
-  labs(y = "Cease rate", title = "Suffolk cease rate")
+  labs(y = "Cease rate", title = chart_title("cease rate"))
+
+ggsave(chart_path("cease-rate.png"), width = 14, height = 7)
 
 unique(results$end)
 
