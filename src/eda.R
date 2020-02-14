@@ -215,7 +215,7 @@ write.csv(bernoulli_params, file.path(output_dir, "phase-bernoulli-params.csv"),
 
 joiner_placements <- periods %>% group_by(admission_age, first_placement) %>% summarise(n = n())
 
-write.csv(joiner_placements, "data/joiner-placements.csv", row.names = FALSE)
+write.csv(joiner_placements, file.path(output_dir, "joiner-placements.csv"), row.names = FALSE)
 
 ## Create transition matrix
 
