@@ -14,21 +14,29 @@ library(networkD3)
 library(fitdistrplus)
 
 ## Update with name of local authority
-la_label <- "Your_LA_Here"
-districts <- c("LA", "Districts", "Here")
+## la_label <- "Your_LA_Here"
+## districts <- c("LA", "Districts", "Here")
+## output_root <- root of where files should go
+## scrubbed_episodes <- path to input scrubbed.episodes.csv
+
+output_dir <- file.path(output_root, Sys.Date())
+
+## create our dated data output subdir if it doesn't exist
+if(!dir.exists(output_dir))
+    dir.create(output_dir)
 
 chart_title <- function(title){
   paste(la_label, "-", title)
 }
 
 chart_path <- function(path) {
-  file.path(dirname(path), paste0(Sys.Date(),"-",basename(path)))
+  file.path(output_dir, paste0(Sys.Date(),"-",basename(path)))
 }
 
 ## If you need to install Open Sans for Mastodon theme. Make sure Open Sans is downloaded and installed.
-install.packages("extrafont")
+## install.packages("extrafont")
 library(extrafont)
-font_import()
+## font_import()
 ## End font import
 
 theme_mastodon <- theme(plot.title = element_text(family = "OpenSans-Bold", hjust = 0.5, size = 20,
@@ -88,6 +96,10 @@ year_diff <- function(start, stop) {
   as.numeric(difftime(stop, start, units = "days")) %/% 365.25
 }
 
+day_diff <- function(start, stop) {
+  as.numeric(difftime(stop, start, units = "days"))
+}
+
 
 episodes2periods <- function(episodes) {
   latest_cease <- max(episodes[!is.na(episodes$ceased),]$ceased)
@@ -113,7 +125,7 @@ date_after <- function(date) {
   date + runif(length(date), min = 0, max = interval(date, next_year) / days(1))
 }
 
-episodes <- read.csv("./data/suffolk.scrubbed.new.csv", header = TRUE, stringsAsFactors = FALSE, na.strings ="NA")
+episodes <- read.csv(scrubbed_episodes, header = TRUE, stringsAsFactors = FALSE, na.strings ="NA")
 episodes$report_date <- ymd(episodes$report_date)
 episodes$ceased <- ymd(episodes$ceased)
 
@@ -147,9 +159,9 @@ impute.quantiles <- function(df) {
   res
 }
 
-write.csv(impute.quantiles(quantiles$quantile), "data/duration-model-median.csv", row.names = FALSE)
-write.csv(impute.quantiles(quantiles$lower), "data/duration-model-lower.csv", row.names = FALSE)
-write.csv(impute.quantiles(quantiles$upper), "data/duration-model-upper.csv", row.names = FALSE)
+write.csv(impute.quantiles(quantiles$quantile), file.path(output_dir, "duration-model-median.csv"), row.names = FALSE)
+write.csv(impute.quantiles(quantiles$lower), file.path(output_dir, "duration-model-lower.csv"), row.names = FALSE)
+write.csv(impute.quantiles(quantiles$upper), file.path(output_dir, "duration-model-upper.csv"), row.names = FALSE)
 
 ## Create phase durations
 
@@ -168,8 +180,8 @@ q_rest <- quantile(na.omit(phases[phases$first_phase == FALSE,]$phase_duration_d
 quantiles <- rbind(cbind(quantile = 0:100, melt(q_first), label = "first"),
                    cbind(quantile = 0:100, melt(q_rest), label = "rest"))
 
-write.csv(data.frame(label = c("First", "Rest"), param = c(fit_first$estimate, fit_rest$estimate)), "data/phase-durations.csv", row.names = FALSE)
-write.csv(quantiles, "data/phase-duration-quantiles.csv", row.names = FALSE)
+write.csv(data.frame(label = c("First", "Rest"), param = c(fit_first$estimate, fit_rest$estimate)), file.path(output_dir, "phase-durations.csv"), row.names = FALSE)
+write.csv(quantiles, file.path(output_dir, "phase-duration-quantiles.csv"), row.names = FALSE)
 
 ## Create beta params
 
@@ -190,16 +202,20 @@ for (age.x in 0:17) {
   beta_params <- rbind(beta_params, data.frame(age = age.x, alpha = fit$estimate["shape1"], beta = fit$estimate["shape2"]))
 }
 
-bernoulli_params <- phases.correlate.p %>% filter(!is.na(phase_p)) %>% group_by(age) %>% summarise(alpha = sum(phase_p != 1), beta = sum(phase_p == 1.0))
+## FIXME Error in eval(lhs, parent, parent) :
+##   object 'phases.correlate.p' not found
+## bernoulli_params <- phases.correlate.p %>% filter(!is.na(phase_p)) %>% group_by(age) %>% summarise(alpha = sum(phase_p != 1), beta = sum(phase_p == 1.0))
+## Trying this. Seems to work.
+bernoulli_params <- phases %>% filter(!is.na(phase_p)) %>% group_by(age) %>% summarise(alpha = sum(phase_p != 1), beta = sum(phase_p == 1.0))
 
-write.csv(beta_params, "data/phase-beta-params.csv", row.names = FALSE)
-write.csv(bernoulli_params, "data/phase-bernoulli-params.csv", row.names = FALSE)
+write.csv(beta_params, file.path(output_dir, "phase-beta-params.csv"), row.names = FALSE)
+write.csv(bernoulli_params, file.path(output_dir, "phase-bernoulli-params.csv"), row.names = FALSE)
 
 ## Create joiner probabilities
 
 joiner_placements <- periods %>% group_by(admission_age, first_placement) %>% summarise(n = n())
 
-write.csv(joiner_placements, "data/joiner-placements.csv", row.names = FALSE)
+write.csv(joiner_placements, file.path(output_dir, "joiner-placements.csv"), row.names = FALSE)
 
 ## Create transition matrix
 
@@ -214,7 +230,13 @@ transition_counts <- episodes %>% group_by(period_id, phase_id) %>%
 
 transition_counts[is.na(transition_counts$transition_age),]
 
-write.csv(transition_counts, "data/phase-transitions.csv", row.names = FALSE)
+write.csv(transition_counts, file.path(output_dir, "phase-transitions.csv"), row.names = FALSE)
+
+######################################################################
+## End of model input creation
+
+######################################################################
+## Input data inspection
 
 ## Look for policy changes
 
@@ -255,8 +277,6 @@ for (year in max_year:min_year) {
 
 ## Transitions start here:
 
-dates <-  data.table(day = seq(min_date, max_date, "day"))
-
 episodes_table <- episodes %>%
   group_by(period_id) %>%
   mutate(open = is.na(max(ceased))) %>%
@@ -267,6 +287,12 @@ episodes_table <- episodes %>%
   dplyr::select(period_id, report_date, birthday, ceased, placement, next_placement) %>%
   mutate(ceased = if_else(next_placement == "OUT", ceased, ceased - 1)) %>%
   as.data.table
+
+## Area charts & total CiC
+min_date <- min(episodes$ceased, na.rm = TRUE)
+max_date <- max(episodes$ceased, na.rm = TRUE)
+
+dates <- data.table(day = seq(min_date, max_date, "day"))
 
 results <- episodes_table[dates, on = .(report_date <= day, ceased > day), nomatch = 0, allow.cartesian=TRUE,
                           .(period_id, day, birthday, placement)]
@@ -308,7 +334,7 @@ transitions_summary %>%
   scale_fill_manual(values = my.colours) +
   labs(title = NULL, fill = "Next placement", x = "Transition year", y = "Proportion of transitions per year")
 
-ggsave(chart_path("suffolk-q2-transitions-age-zoom.png"), width = 14, height = 7)
+ggsave(chart_path("q2-transitions-age-zoom.png"), width = 14, height = 7)
 
 ## Leaver rate by month
 dates <-  data.frame(day = seq(as.Date("2015-03-01"), as.Date("2018-03-01"), "month"),
@@ -326,16 +352,30 @@ dates %>% full_join(periods_table) %>%
   ggplot(aes(day, cease_rate)) +
   geom_bar(stat = "identity", fill = my.colours[1]) +
   theme_mastodon +
-  labs(y = "Cease rate", title = "Suffolk cease rate")
+  labs(y = "Cease rate", title = chart_title("cease rate"))
+
+ggsave(chart_path("cease-rate.png"), width = 14, height = 7)
 
 unique(results$end)
 
 ## Estimate trend in arrivals by age
-install.packages("arm")
+## install.packages("arm")
 library(arm)
 from <- max_date - years(3)
 to <- max_date + years(5)
-grid<- expand.grid(admission_age = factor(as.character(0:17), levels = as.character(0:17)), beginning = seq(from,to,'weeks'))
+
+grid <- expand.grid(admission_age = factor(as.character(0:17), levels = as.character(0:17)), beginning = seq(from,to,'weeks'))
+
+diffs <- periods %>%
+  arrange(admission_age, beginning) %>%
+  group_by(admission_age) %>%
+  mutate(diff = interval(lag(beginning), beginning) / days(1), n = n()) %>%
+  ungroup %>%
+  filter(!is.na(diff) & n >= 3) %>% # We need at least 3 data points for each age to generate 2 diffs
+  dplyr::select(admission_age, diff, beginning) %>%
+  mutate(diff = diff + 0.01) %>% # Diff must always be greater than zero
+  as.data.frame
+
 joiners.model <- bayesglm(diff ~ beginning * admission_age, data = diffs %>% filter(beginning >= from), family=Gamma(link = log))
 
 joiner.projection <- function(diffs, from, to) {
@@ -348,16 +388,6 @@ joiner.projection <- function(diffs, from, to) {
   grid
 }
 
-diffs <- periods %>%
-  arrange(admission_age, beginning) %>%
-  group_by(admission_age) %>%
-  mutate(diff = interval(lag(beginning), beginning) / days(1), n = n()) %>%
-  ungroup %>%
-  filter(!is.na(diff) & n >= 3) %>% # We need at least 3 data points for each age to generate 2 diffs
-  dplyr::select(admission_age, diff, beginning) %>%
-  mutate(diff = diff + 0.01) %>% # Diff must always be greater than zero
-  as.data.frame
-
 max_date <- max(periods$end, na.rm = TRUE)
 grid3 <- joiner.projection(diffs, max_date - years(3), max_date + years(5))
 grid4 <- joiner.projection(diffs, max_date - years(4), max_date + years(5))
@@ -367,7 +397,7 @@ ggplot(grid.all, aes(x = beginning, y = projection, color = admission_age)) +
   geom_line(aes(linetype = input)) +
   facet_wrap(vars(admission_age), scale = "free") +
   scale_color_manual(values = tableau_color_pal("Tableau 20")(20), guide = "none") +
-  labs(x = "Date", y = "Inter-arrival time (days)", title = "Projected mean inter-arrival time by age of entry (3 & 4 years historic data)",
+  labs(x = "Date", y = "Inter-arrival time (days)", title = chart_title("Projected mean inter-arrival time by age of entry (3 & 4 years historic data)"),
        linetype = "Input history")
 
 ggplot(grid.all, aes(x = beginning, y = projection)) +
@@ -376,10 +406,12 @@ ggplot(grid.all, aes(x = beginning, y = projection)) +
   facet_wrap(vars(admission_age), scale = "free") +
   coord_cartesian(ylim = c(0, 100)) +
   scale_color_manual(values = tableau_color_pal("Tableau 20")(20), guide = "none") +
-  labs(x = "Date", y = "Inter-arrival time (days)", title = "Projected mean inter-arrival time by age of entry (3 & 4 years historic data)",
+  labs(x = "Date", y = "Inter-arrival time (days)", title = chart_title("Projected mean inter-arrival time by age of entry (3 & 4 years historic data)"),
        linetype = "Input history", fill = "Input history")
 
+ggsave(chart_path("inter-arrival-time.png"), width = 14, height = 7)
 
+## TODO: loop through all ages for these charts
 admission.age = 3
 grid.all %>%
   filter(admission_age == admission.age) %>%
@@ -430,6 +462,9 @@ test.admission.age <- function(age) {
 min_year <- 2010
 max_year <- year(max(diffs$beginning)) - 1
 
+## FIXME? This doesn't work
+## Error in ks.test(sample$diff, pop$diff) : not enough 'x' data
+## In addition: There were 11 warnings (use warnings() to see them)
 for (age in as.character(0:17)) {
   # print(paste("Testing age", age))
   for (year in max_year:min_year) {
@@ -450,9 +485,11 @@ for (age in as.character(0:17)) {
 
 ## Estimate underlying bimodal survival curves from censored data
 
+## FIXME:
 result <- 0
 n.times <- 1000
 d <- 0.5
+
 for (i in 1:n.times){
   data <- sample_n(periods, nrow(periods), replace = TRUE)
   data <- data %>% mutate(birthday = date_after(if_else(year(beginning) == DOB, beginning, ymd(paste0(DOB, "-01-01")))))  %>%
@@ -497,6 +534,8 @@ ggplot(long.pdf, aes(Var2, value)) +
   theme_mastodon
 
 ggsave(chart_path("exit-age-distribution.png"), width = 11, height = 8)
+
+## ^^^^ FIXME end
 
 ggplot(periods, aes(as.integer(as.character(admission_age)), duration / 365)) +
   geom_point(position = "jitter", color = tableau_color_pal("Tableau 20")(1), alpha = 0.5) +
@@ -595,6 +634,7 @@ print(sankeyNetwork(Links = links, Nodes = nodes, Source = "source",
                                      "#E15759","#FF9D9A","#79706E","#BAB0AC","#D37295","#FABFD2","#B07AA1","#D4A6C8","#9D7660","#D7B5A6", "#FFFFFF"])')
                     ))
 
+## TODO: Find a good way to save the sankey
 
 ## Individual historic sequences
 
@@ -623,6 +663,7 @@ results$placement <- factor(results$placement, levels = sort(unique(results$plac
 my.colours <- tableau_color_pal("Tableau 20")(length(levels(results$placement)))
 names(my.colours) <- levels(results$placement)
 
+## FIXME: cake plot chart
 gtyears <- 2
 candidates <- (periods %>% filter(event == 1 & duration > 365*gtyears) %>%sample_n(250) %>% arrange(duration))$period_id
 ggplot(results %>% filter(period_id %in% candidates), aes(offset, factor(period_id, levels = rev(candidates)))) +
@@ -638,10 +679,6 @@ ggplot(results %>% filter(period_id %in% candidates), aes(offset, factor(period_
   theme_mastodon
 
 ggsave(chart_path("cake-plot.png"), width = 11, height = 8)
-
-## Area charts & total CiC
-min_date <- min(episodes$ceased, na.rm = TRUE)
-max_date <- max(episodes$ceased, na.rm = TRUE)
 
 dates <- data.table(date = seq(min_date, max_date, by = 7))
 episodes_table <- as.data.table(episodes %>% mutate(ceased = ifelse(is.na(ceased), as.Date("2050-01-01"), episodes$ceased)))
@@ -695,6 +732,7 @@ ggplot(results, aes(date, fill = placement)) +
 
 ggsave(chart_path("placement.png"), width = 11, height = 8)
 
+## TODO: Get the districts sorted to drive this loop
 snpp <- read.csv("2016 SNPP Population persons.csv")
 length(unique(snpp[snpp$AREA_NAME %in% districts,"AREA_NAME"]))
 snpp_la <- colSums(snpp[snpp$AREA_NAME %in% districts & snpp$AGE_GROUP %in% 0:17, 6:ncol(snpp)])
@@ -851,6 +889,7 @@ ggsave(chart_path("joiners-leaver-rate.png"), width = 11, height = 8)
 
 ## Where is leaver rate changing most? By age, by placement?
 
+## FIXME: DOB not found
 monthly_leavers_age <- periods %>%
   mutate(month = floor_date(end, "month"),
          exit_age = round(as.numeric(end - as.Date(paste0(DOB,"-07-31"))) / 365.0)) %>%
@@ -905,7 +944,7 @@ ggplot(test_data, aes(long_run_duration)) +
   geom_histogram(bins = 50) +
   theme_mastodon +
   scale_y_continuous(limits = c(0,300)) +
-  labs(title = "Generated distribution of durations (10k sample)",
+  labs(title = chart_title("Generated distribution of durations (10k sample)"),
        x = "Duration (years)", y = "Count")
 
 ggsave(chart_path("surv-generated.png"), width = 11, height = 8)
@@ -914,7 +953,7 @@ ggplot(test_data %>% filter(!open), aes(duration)) +
   geom_histogram(bins = 50) +
   theme_mastodon +
   scale_y_continuous(limits = c(0,300)) +
-  labs(title = "Measured distribution of closed durations (10k sample)",
+  labs(title = chart_title("Measured distribution of closed durations (10k sample)"),
        x = "Duration (years)", y = "Count")
 
 ggsave(chart_path("surv-censored.png"), width = 11, height = 8)
@@ -929,7 +968,7 @@ melt(quantile(fit, probs = seq(0,1,length.out = 10000))$quantile) %>%
   ggplot(aes(value)) +
   geom_histogram(bins = 50) +
   theme_mastodon +
-  labs(title = "Inferred distribution of durations (10k sample)",
+  labs(title = chart_title("Inferred distribution of durations (10k sample)"),
        x = "Duration (years)", y = "Count")
 
 ggsave(chart_path("surv-inferred.png"), width = 11, height = 8)
