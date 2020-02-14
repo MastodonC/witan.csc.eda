@@ -462,6 +462,9 @@ test.admission.age <- function(age) {
 min_year <- 2010
 max_year <- year(max(diffs$beginning)) - 1
 
+## FIXME? This doesn't work
+## Error in ks.test(sample$diff, pop$diff) : not enough 'x' data
+## In addition: There were 11 warnings (use warnings() to see them)
 for (age in as.character(0:17)) {
   # print(paste("Testing age", age))
   for (year in max_year:min_year) {
@@ -482,9 +485,11 @@ for (age in as.character(0:17)) {
 
 ## Estimate underlying bimodal survival curves from censored data
 
+## FIXME:
 result <- 0
 n.times <- 1000
 d <- 0.5
+
 for (i in 1:n.times){
   data <- sample_n(periods, nrow(periods), replace = TRUE)
   data <- data %>% mutate(birthday = date_after(if_else(year(beginning) == DOB, beginning, ymd(paste0(DOB, "-01-01")))))  %>%
@@ -529,6 +534,8 @@ ggplot(long.pdf, aes(Var2, value)) +
   theme_mastodon
 
 ggsave(chart_path("exit-age-distribution.png"), width = 11, height = 8)
+
+## ^^^^ FIXME end
 
 ggplot(periods, aes(as.integer(as.character(admission_age)), duration / 365)) +
   geom_point(position = "jitter", color = tableau_color_pal("Tableau 20")(1), alpha = 0.5) +
