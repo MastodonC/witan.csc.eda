@@ -232,6 +232,11 @@ transition_counts[is.na(transition_counts$transition_age),]
 
 write.csv(transition_counts, file.path(output_dir, "phase-transitions.csv"), row.names = FALSE)
 
+######################################################################
+## End of model input creation
+
+######################################################################
+## Input data inspection
 
 ## Look for policy changes
 
