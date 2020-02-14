@@ -944,7 +944,7 @@ ggplot(test_data, aes(long_run_duration)) +
   geom_histogram(bins = 50) +
   theme_mastodon +
   scale_y_continuous(limits = c(0,300)) +
-  labs(title = "Generated distribution of durations (10k sample)",
+  labs(title = chart_title("Generated distribution of durations (10k sample)"),
        x = "Duration (years)", y = "Count")
 
 ggsave(chart_path("surv-generated.png"), width = 11, height = 8)
@@ -953,7 +953,7 @@ ggplot(test_data %>% filter(!open), aes(duration)) +
   geom_histogram(bins = 50) +
   theme_mastodon +
   scale_y_continuous(limits = c(0,300)) +
-  labs(title = "Measured distribution of closed durations (10k sample)",
+  labs(title = chart_title("Measured distribution of closed durations (10k sample)"),
        x = "Duration (years)", y = "Count")
 
 ggsave(chart_path("surv-censored.png"), width = 11, height = 8)
@@ -968,7 +968,7 @@ melt(quantile(fit, probs = seq(0,1,length.out = 10000))$quantile) %>%
   ggplot(aes(value)) +
   geom_histogram(bins = 50) +
   theme_mastodon +
-  labs(title = "Inferred distribution of durations (10k sample)",
+  labs(title = chart_title("Inferred distribution of durations (10k sample)"),
        x = "Duration (years)", y = "Count")
 
 ggsave(chart_path("surv-inferred.png"), width = 11, height = 8)
