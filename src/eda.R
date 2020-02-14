@@ -180,8 +180,8 @@ q_rest <- quantile(na.omit(phases[phases$first_phase == FALSE,]$phase_duration_d
 quantiles <- rbind(cbind(quantile = 0:100, melt(q_first), label = "first"),
                    cbind(quantile = 0:100, melt(q_rest), label = "rest"))
 
-write.csv(data.frame(label = c("First", "Rest"), param = c(fit_first$estimate, fit_rest$estimate)), "data/phase-durations.csv", row.names = FALSE)
-write.csv(quantiles, "data/phase-duration-quantiles.csv", row.names = FALSE)
+write.csv(data.frame(label = c("First", "Rest"), param = c(fit_first$estimate, fit_rest$estimate)), file.path(output_dir, "phase-durations.csv"), row.names = FALSE)
+write.csv(quantiles, file.path(output_dir, "phase-duration-quantiles.csv"), row.names = FALSE)
 
 ## Create beta params
 
