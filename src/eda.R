@@ -663,6 +663,7 @@ results$placement <- factor(results$placement, levels = sort(unique(results$plac
 my.colours <- tableau_color_pal("Tableau 20")(length(levels(results$placement)))
 names(my.colours) <- levels(results$placement)
 
+## FIXME: cake plot chart
 gtyears <- 2
 candidates <- (periods %>% filter(event == 1 & duration > 365*gtyears) %>%sample_n(250) %>% arrange(duration))$period_id
 ggplot(results %>% filter(period_id %in% candidates), aes(offset, factor(period_id, levels = rev(candidates)))) +
