@@ -96,6 +96,10 @@ year_diff <- function(start, stop) {
   as.numeric(difftime(stop, start, units = "days")) %/% 365.25
 }
 
+day_diff <- function(start, stop) {
+  as.numeric(difftime(stop, start, units = "days"))
+}
+
 
 episodes2periods <- function(episodes) {
   latest_cease <- max(episodes[!is.na(episodes$ceased),]$ceased)
