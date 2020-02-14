@@ -230,7 +230,8 @@ transition_counts <- episodes %>% group_by(period_id, phase_id) %>%
 
 transition_counts[is.na(transition_counts$transition_age),]
 
-write.csv(transition_counts, "data/phase-transitions.csv", row.names = FALSE)
+write.csv(transition_counts, file.path(output_dir, "phase-transitions.csv"), row.names = FALSE)
+
 
 ## Look for policy changes
 
