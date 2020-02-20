@@ -377,6 +377,10 @@ diffs <- periods %>%
   mutate(diff = diff + 0.01) %>% # Diff must always be greater than zero
   as.data.frame
 
+## FIXME: Error in lm.fit(x = x.star[good.star, , drop = FALSE] * w.star, y = z.star *  :
+##   NA/NaN/Inf in 'x'
+## In addition: Warning message:
+## step size truncated due to divergence
 joiners.model <- bayesglm(diff ~ beginning * admission_age, data = diffs %>% filter(beginning >= from), family=Gamma(link = log))
 
 joiner.projection <- function(diffs, from, to) {
