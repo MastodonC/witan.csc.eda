@@ -130,6 +130,13 @@ episodes <- read.csv(scrubbed_episodes, header = TRUE, stringsAsFactors = FALSE,
 episodes$report_date <- ymd(episodes$report_date)
 episodes$ceased <- ymd(episodes$ceased)
 
+
+## Remove suspicious data
+suspicious_rows <- episodes %>% filter(report_date >= Sys.Date()) ## Should return empty tibble
+write.csv(suspicious_rows, file.path(output_dir,"future_report_dates.csv"))
+
+episodes <- episodes %>% filter(report_date < Sys.Date())
+
 end_date <- max(max(episodes$report_date), max(episodes$ceased, na.rm = TRUE))
 
 # Do we appear to have anyone over 18?
@@ -143,6 +150,10 @@ episodes <- episodes %>% inner_join(birthdays)
 episodes %>% group_by(ID) %>%
   summarise(age = ifelse(is.na(max(ceased)), year_diff(min(birthday), end_date), year_diff(min(birthday), max(ceased)))) %>%
   filter(age > 17)
+
+episodes %>% group_by(ID) %>%
+  summarise(age = ifelse(is.na(max(ceased)), year_diff(min(birthday), end_date), year_diff(min(birthday), max(ceased)))) %>%
+  filter(age < 0)
 
 periods <- episodes2periods(episodes)
 periods$admission_age = factor(periods$admission_age)
@@ -203,10 +214,6 @@ for (age.x in 0:17) {
   beta_params <- rbind(beta_params, data.frame(age = age.x, alpha = fit$estimate["shape1"], beta = fit$estimate["shape2"]))
 }
 
-## FIXME Error in eval(lhs, parent, parent) :
-##   object 'phases.correlate.p' not found
-## bernoulli_params <- phases.correlate.p %>% filter(!is.na(phase_p)) %>% group_by(age) %>% summarise(alpha = sum(phase_p != 1), beta = sum(phase_p == 1.0))
-## Trying this. Seems to work.
 bernoulli_params <- phases %>% filter(!is.na(phase_p)) %>% group_by(age) %>% summarise(alpha = sum(phase_p != 1), beta = sum(phase_p == 1.0))
 
 write.csv(beta_params, file.path(output_dir, "phase-beta-params.csv"), row.names = FALSE)
