@@ -1,3 +1,6 @@
+## To make this work you need to define raw_episodes as the input file
+## and scrubbed_episodes as the output file.
+
 library(dplyr)
 library(lubridate)
 
@@ -44,7 +47,7 @@ assoc.phase.id <- function(episodes) {
   episodes
 }
 
-episodes <- read.csv("data/episodes.csv", header = TRUE, stringsAsFactors = FALSE, na.strings ="") %>%
+episodes <- read.csv(raw_episodes, header = TRUE, stringsAsFactors = FALSE, na.strings ="") %>%
   parse.dates %>%
   remove.stale.episodes %>%
   remap.placements %>%
@@ -56,4 +59,4 @@ respite.children <- episodes %>% group_by(period_id) %>% filter(length(unique(le
 respite.children$ID
 episodes <- episodes %>% filter(!ID %in% respite.children$ID)
 
-write.csv(episodes, "data/episodes.scrubbed.csv", na = "")
+write.csv(episodes, scrubbed_episodes, na = "")

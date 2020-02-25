@@ -84,13 +84,14 @@ date_between <- function(start, end) {
 
 
 
-
+## FIXME: This is the function that needs to be fixed to handle -1 ages
 imputed_birthday <- function(birth_year, min_start, max_cease) {
   earliest_possible <- max(max_cease - days(floor(18 * 365.25)) + 1, year_start(birth_year))
   latest_possible <- min(min_start, year_end(birth_year))
   date_between(earliest_possible, latest_possible)
 }
 
+## imputed_birthday(2002, ymd("2002-12-03"), ymd("2019-03-31"))
 
 year_diff <- function(start, stop) {
   as.numeric(difftime(stop, start, units = "days")) %/% 365.25
@@ -376,6 +377,10 @@ diffs <- periods %>%
   mutate(diff = diff + 0.01) %>% # Diff must always be greater than zero
   as.data.frame
 
+## FIXME: Error in lm.fit(x = x.star[good.star, , drop = FALSE] * w.star, y = z.star *  :
+##   NA/NaN/Inf in 'x'
+## In addition: Warning message:
+## step size truncated due to divergence
 joiners.model <- bayesglm(diff ~ beginning * admission_age, data = diffs %>% filter(beginning >= from), family=Gamma(link = log))
 
 joiner.projection <- function(diffs, from, to) {
