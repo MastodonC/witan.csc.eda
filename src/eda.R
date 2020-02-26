@@ -813,7 +813,7 @@ ggplot(data = monthly_rates) +
   stat_smooth(aes(month, joiners.sum, color = "Joiners"), alpha = 0.2, span = 1) +
   stat_smooth(aes(month, leaver.rate * 50, color = "Leaver Rate"), alpha = 0.2, span = 1) +
   scale_y_continuous(name = "Joiners", sec.axis = sec_axis(~./50, name = "Leaver Rate (%)"),
-                     limits = c(0, 250)) +
+                     limits = c(0, 350)) +
   scale_color_manual(values = green_orange) +
   theme_mastodon +
   labs(title = chart_title("Joiners & leaver rate"), x = "Month",
@@ -827,7 +827,7 @@ monthly_rates %>%
   ggplot(aes(month, value, color = variable)) +
   scale_color_manual(values = green_orange, labels = c("Joiners", "Leavers")) +
   geom_line() +
-  scale_y_continuous(limits = c(0,200)) +
+  scale_y_continuous(limits = c(0,350)) +
   stat_smooth(method = "loess", span = 1) +
   theme_mastodon +
   labs(title = chart_title("Monthly joiners & leavers"), x = "Month", y = "Monthly count, rolling 12-month average",
