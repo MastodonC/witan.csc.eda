@@ -388,10 +388,9 @@ diffs <- periods %>%
   mutate(diff = diff + 0.01) %>% # Diff must always be greater than zero
   as.data.frame
 
-## FIXME: Error in lm.fit(x = x.star[good.star, , drop = FALSE] * w.star, y = z.star *  :
-##   NA/NaN/Inf in 'x'
-## In addition: Warning message:
-## step size truncated due to divergence
+## If this fails then the model won't run. It probably means that
+## there is something wrong with your data such as too many people
+## arriving at the same time, as interarrival time can't be 0.
 joiners.model <- bayesglm(diff ~ beginning * admission_age, data = diffs %>% filter(beginning >= from), family=Gamma(link = log))
 
 joiner.projection <- function(diffs, from, to) {
