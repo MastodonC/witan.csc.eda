@@ -752,7 +752,7 @@ total_la <- data.frame(date = as.Date(paste0(str_replace(names(snpp_la),"X",""),
 total_cic <- results %>% group_by(date) %>% summarise(n = n()) %>% as.data.frame
 factor = max(total_la$n) / max(total_cic$n)
 max_y <- max(total_cic$n)
-green_orange <- tableau_color_pal("Tableau 20")(5)[c(3,5)]
+
 
 cols <- c("CiC"=green_orange[1],"LA"=green_orange[2])
 ggplot(NULL, aes(date, n)) +
@@ -768,6 +768,8 @@ ggplot(NULL, aes(date, n)) +
 ggsave(chart_path("population-growth.png"), width = 8, height = 12)
 
 ## Monthly joiner rates comparison
+
+green_orange <- tableau_color_pal("Tableau 20")(5)[c(3,5)]
 
 dates <- data.table(month = seq(min_date, max_date, "month"))
 episodes_table <- as.data.table(episodes %>% mutate(ceased = ifelse(is.na(ceased), as.Date("2050-01-01"), episodes$ceased)))
