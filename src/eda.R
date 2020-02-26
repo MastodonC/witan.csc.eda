@@ -497,14 +497,13 @@ for (age in as.character(0:17)) {
 
 ## Estimate underlying bimodal survival curves from censored data
 
-## FIXME:
 result <- 0
 n.times <- 1000
 d <- 0.5
 
 for (i in 1:n.times){
   data <- sample_n(periods, nrow(periods), replace = TRUE)
-  data <- data %>% mutate(birthday = date_after(if_else(year(beginning) == DOB, beginning, ymd(paste0(DOB, "-01-01")))))  %>%
+  data <- data %>% mutate(birthday = date_after(if_else(year(beginning) == birth_year, beginning, ymd(paste0(birth_year, "-01-01")))))  %>%
     mutate(AOA = floor(interval(birthday, beginning) / years(1)),
            duration_yrs = duration / 365.0)
   data$AOA <- factor(data$AOA)
@@ -547,7 +546,6 @@ ggplot(long.pdf, aes(Var2, value)) +
 
 ggsave(chart_path("exit-age-distribution.png"), width = 11, height = 8)
 
-## ^^^^ FIXME end
 
 ggplot(periods, aes(as.integer(as.character(admission_age)), duration / 365)) +
   geom_point(position = "jitter", color = tableau_color_pal("Tableau 20")(1), alpha = 0.5) +
@@ -675,7 +673,6 @@ results$placement <- factor(results$placement, levels = sort(unique(results$plac
 my.colours <- tableau_color_pal("Tableau 20")(length(levels(results$placement)))
 names(my.colours) <- levels(results$placement)
 
-## FIXME: cake plot chart
 gtyears <- 2
 candidates <- (periods %>% filter(event == 1 & duration > 365*gtyears) %>%sample_n(250) %>% arrange(duration))$period_id
 ggplot(results %>% filter(period_id %in% candidates), aes(offset, factor(period_id, levels = rev(candidates)))) +
@@ -901,10 +898,9 @@ ggsave(chart_path("joiners-leaver-rate.png"), width = 11, height = 8)
 
 ## Where is leaver rate changing most? By age, by placement?
 
-## FIXME: DOB not found
 monthly_leavers_age <- periods %>%
   mutate(month = floor_date(end, "month"),
-         exit_age = round(as.numeric(end - as.Date(paste0(DOB,"-07-31"))) / 365.0)) %>%
+         exit_age = round(as.numeric(end - as.Date(paste0(birth_year,"-07-31"))) / 365.0)) %>%
   group_by(exit_age, month) %>%
   summarise(n = n()) %>%
   dcast(month ~ exit_age, fill = 0) %>%
