@@ -147,13 +147,17 @@ birthdays <- episodes %>%
 
 episodes <- episodes %>% inner_join(birthdays)
 
-episodes %>% group_by(ID) %>%
+over_18 <- episodes %>% group_by(ID) %>%
   summarise(age = ifelse(is.na(max(ceased)), year_diff(min(birthday), end_date), year_diff(min(birthday), max(ceased)))) %>%
   filter(age > 17)
 
-episodes %>% group_by(ID) %>%
+write.csv(over_18, file.path(output_dir, "over_18.csv"))
+
+under_0 <- episodes %>% group_by(ID) %>%
   summarise(age = ifelse(is.na(max(ceased)), year_diff(min(birthday), end_date), year_diff(min(birthday), max(ceased)))) %>%
   filter(age < 0)
+write.csv(under_0, file.path(output_dir, "under_0.csv"))
+
 
 periods <- episodes2periods(episodes)
 periods$admission_age = factor(periods$admission_age)
