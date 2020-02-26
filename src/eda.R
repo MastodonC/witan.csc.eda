@@ -477,9 +477,8 @@ test.admission.age <- function(age) {
 min_year <- 2010
 max_year <- year(max(diffs$beginning)) - 1
 
-## FIXME? This doesn't work
-## Error in ks.test(sample$diff, pop$diff) : not enough 'x' data
-## In addition: There were 11 warnings (use warnings() to see them)
+## Use this to figure out what data should be used to have the same
+## underlying process for joiners
 for (age in as.character(0:17)) {
   # print(paste("Testing age", age))
   for (year in max_year:min_year) {
