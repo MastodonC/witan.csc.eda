@@ -95,12 +95,6 @@ date_between <- function(start, end) {
 }
 
 
-imputed_birthday <- function(birth_month, min_start, max_cease) {
-  earliest_possible <- max(max_cease - days(floor(18 * 365.25)) + 1, month_start(birth_month))
-  latest_possible <- min(min_start, month_end(birth_month))
-  date_between(earliest_possible, latest_possible)
-}
-
 birthday_before_date <- function(birth_date, other_date) {
   yr <- year(other_date)
   a <- birth_date
@@ -113,6 +107,20 @@ birthday_before_date <- function(birth_date, other_date) {
     a
   }
 }
+
+imputed_birthday <- function(birth_year_month, report_date) {
+  earliest_possible <- as.Date(paste0(birth_year_month, "-01"))
+  if(month(earliest_possible) == (month(report_date))) {
+    latest_possible <- report_date - 1
+  } else {
+    latest_possible <- as.Date(paste0(birth_year_month, "-",
+                                      days_in_month(as.yearmon(birth_year_month))))
+  }
+  date_between(earliest_possible, latest_possible)
+}
+
+## imputed_birthday("2002-12", ymd("2019-03-31"))
+>>>>>>> imputed_birthday take YYYY-MM rather than just year
 
 year_diff <- function(start, stop) {
   as.numeric(difftime(stop, start, units = "days")) %/% 365.25
@@ -167,7 +175,7 @@ end_date <- max(max(episodes$report_date), max(episodes$ceased, na.rm = TRUE))
 
 birthdays <- episodes %>%
   group_by(ID) %>%
-  summarise(birthday = imputed_birthday(DOB[1], min(report_date), coalesce(max(ceased), end_date)))
+  summarise(birthday = imputed_birthday(DOB[1], min(report_date)))
 
 episodes <- episodes %>% inner_join(birthdays)
 
@@ -653,7 +661,7 @@ for (age.entry in 0:17) {
       group_by(phase_number, placement, next_placement) %>%
       summarise(n = n()) %>%
       ungroup
-    
+
     sankey.placements <- function(transitions, level) {
       if (level == 1) {
         transitions %>%
@@ -674,7 +682,7 @@ for (age.entry in 0:17) {
           as.data.frame
       }
     }
-    
+
     nodes <- data.frame(placement = c(), id = c(), level = c())
     start <- sankey.placements(sankey.transitions, 1)
     nodes <- cbind(start, level = 1)
@@ -688,7 +696,7 @@ for (age.entry in 0:17) {
         nodes <- rbind(nodes, new_nodes)
       }
     }
-    
+
     links <- sankey.transitions %>%
       inner_join(nodes, by = c("phase_number" = "level", "placement" = "placement")) %>%
       inner_join(nodes %>% mutate(level = level - 1), by = c("phase_number" = "level", "next_placement" = "placement")) %>%
