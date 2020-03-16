@@ -19,15 +19,16 @@ library(htmltools)
 ## Update with name of local authority
 ## la_label <- "Your_LA_Here"
 ## districts <- c("LA", "Districts", "Here")
-## output_root <- root of where files should go
-## scrubbed_episodes <- path to input scrubbed.episodes.csv
+## output_root <- root of where your files should go
+## scrubbed_episodes <- path to input episodes.scrubbed.csv
 
 output_dir <- file.path(output_root, Sys.Date())
 
 ## create our dated data output subdir if it doesn't exist
-if(!dir.exists(output_dir))
+if(!dir.exists(output_dir)) {
     dir.create(output_dir)
-
+}
+  
 chart_title <- function(title){
   paste(la_label, "-", title)
 }
