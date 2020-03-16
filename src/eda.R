@@ -121,7 +121,7 @@ imputed_birthday <- function(birth_year_month, report_date) {
   date_between(earliest_possible, latest_possible)
 }
 
-## imputed_birthday("2002-12", ymd("2019-03-31"))
+## imputed_birthday("12/2002", ymd("2019-03-31"))
 
 
 year_diff <- function(start, stop) {
