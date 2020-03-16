@@ -28,7 +28,7 @@ output_dir <- file.path(output_root, Sys.Date())
 if(!dir.exists(output_dir)) {
     dir.create(output_dir)
 }
-  
+
 chart_title <- function(title){
   paste(la_label, "-", title)
 }
@@ -110,7 +110,7 @@ birthday_before_date <- function(birth_date, other_date) {
 }
 
 imputed_birthday <- function(birth_year_month, report_date) {
-  earliest_possible <- as.Date(paste0(birth_year_month, "-01"))
+  earliest_possible <- as.Date(paste0("01/", birth_year_month), "%d/%m/%Y")
   if(month(earliest_possible) == (month(report_date))) {
     latest_possible <- report_date - 1
   } else {
@@ -121,7 +121,7 @@ imputed_birthday <- function(birth_year_month, report_date) {
 }
 
 ## imputed_birthday("2002-12", ymd("2019-03-31"))
->>>>>>> imputed_birthday take YYYY-MM rather than just year
+
 
 year_diff <- function(start, stop) {
   as.numeric(difftime(stop, start, units = "days")) %/% 365.25
