@@ -109,6 +109,7 @@ birthday_before_date <- function(birth_date, other_date) {
   }
 }
 
+
 imputed_birthday <- function(birth_year_month, report_date) {
   earliest_possible <- as.Date(paste0("01/", birth_year_month), "%d/%m/%Y")
   if(month(earliest_possible) == (month(report_date))) {
