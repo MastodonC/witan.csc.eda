@@ -113,7 +113,7 @@ birthday_before_date <- function(birth_date, other_date) {
 imputed_birthday <- function(birth_year_month, report_date) {
   earliest_possible <- as.Date(paste0("01/", birth_year_month), "%d/%m/%Y")
   if(month(earliest_possible) == (month(report_date))) {
-    latest_possible <- report_date - 1
+    latest_possible <- report_date
   } else {
     latest_possible <- as.Date(paste0(birth_year_month, "-",
                                       days_in_month(as.yearmon(birth_year_month))))
@@ -121,7 +121,7 @@ imputed_birthday <- function(birth_year_month, report_date) {
   date_between(earliest_possible, latest_possible)
 }
 
-## imputed_birthday("12/2002", ymd("2019-03-31"))
+## imputed_birthday("12/2002", ymd("2002-12-01"))
 
 
 year_diff <- function(start, stop) {
