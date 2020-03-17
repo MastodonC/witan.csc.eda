@@ -321,7 +321,11 @@ placement.transitions <- episodes %>% group_by(period_id, phase_number, placemen
   filter(!is.na(next_placement)) %>%
   mutate(transition_year = year(end + days(275)))
 
-placement.transitions.grouped <- placement.transitions %>% mutate(admission_age = transition_year - DOB) %>%
+admission_age <- function(end_of_placment, month_of_birth) {
+  floor(time_length(difftime(end_of_placment, as.Date(paste0("01/", month_of_birth), "%d/%m/%Y")), "years"))
+}
+
+placement.transitions.grouped <- placement.transitions %>% mutate(admission_age = admission_age(end,DOB)) %>%
   group_by(transition_year, admission_age, placement, next_placement, CIN, legal_status) %>%
   summarise(n = n())
 
