@@ -569,7 +569,7 @@ d <- 0.5
 
 for (i in 1:n.times){
   data <- sample_n(periods, nrow(periods), replace = TRUE)
-  data <- data %>% mutate(birthday = date_after(if_else(year(beginning) == birth_year, beginning, ymd(paste0(birth_year, "-01-01")))))  %>%
+  data <- data %>% mutate(birthday = imputed_birthday(birth_year, beginning))  %>%
     mutate(AOA = floor(interval(birthday, beginning) / years(1)),
            duration_yrs = duration / 365.0)
   data$AOA <- factor(data$AOA)
@@ -990,7 +990,7 @@ ggsave(chart_path("joiners-leaver-rate.png"), width = 11, height = 8)
 
 monthly_leavers_age <- periods %>%
   mutate(month = floor_date(end, "month"),
-         exit_age = round(as.numeric(end - as.Date(paste0(birth_year,"-07-31"))) / 365.0)) %>%
+         exit_age = round(as.numeric(end - birthday) / 365.0)) %>%
   group_by(exit_age, month) %>%
   summarise(n = n()) %>%
   dcast(month ~ exit_age, fill = 0) %>%
