@@ -592,6 +592,7 @@ for (i in 1:n.times){
   wide.pdf <- wide.cdf.imputed - cbind(0,wide.cdf.imputed[,1:ncol(wide.cdf.imputed)-1])
   result <- result + wide.pdf
 }
+
 result <- result / n.times
 colnames(result) <- seq(0,(18 + d),by=d)
 long.pdf <- melt(result) %>% filter(value > 0) %>% mutate(Var1 = factor(Var1), Var2 = factor(Var2))
@@ -830,7 +831,7 @@ ggplot(results, aes(date, fill = placement)) +
 ggsave(chart_path("placement.png"), width = 11, height = 8)
 
 ## TODO: Get the districts sorted to drive this loop
-snpp <- read.csv("2016 SNPP Population persons.csv")
+snpp <- read.csv("data/2016 SNPP Population persons.csv")
 length(unique(snpp[snpp$AREA_NAME %in% districts,"AREA_NAME"]))
 snpp_la <- colSums(snpp[snpp$AREA_NAME %in% districts & snpp$AGE_GROUP %in% 0:17, 6:ncol(snpp)])
 
@@ -841,6 +842,7 @@ total_cic <- results %>% group_by(date) %>% summarise(n = n()) %>% as.data.frame
 factor = max(total_la$n) / max(total_cic$n)
 max_y <- max(total_cic$n)
 
+green_orange <- tableau_color_pal("Tableau 20")(5)[c(3,5)]
 
 cols <- c("CiC"=green_orange[1],"LA"=green_orange[2])
 ggplot(NULL, aes(date, n)) +
@@ -856,8 +858,6 @@ ggplot(NULL, aes(date, n)) +
 ggsave(chart_path("population-growth.png"), width = 8, height = 12)
 
 ## Monthly joiner rates comparison
-
-green_orange <- tableau_color_pal("Tableau 20")(5)[c(3,5)]
 
 dates <- data.table(month = seq(min_date, max_date, "month"))
 episodes_table <- as.data.table(episodes %>% mutate(ceased = ifelse(is.na(ceased), as.Date("2050-01-01"), episodes$ceased)))
