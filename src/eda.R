@@ -850,6 +850,7 @@ ggplot(NULL, aes(date, n)) +
   geom_line(data = total_cic, size = 0.6, aes(colour = "CiC")) +
   scale_y_continuous(limits = c(0,to_nearest(max_y, 100)),
                      sec.axis = sec_axis(~.*factor, name = "LA population 0-17 (thousands)",
+                                         breaks = seq(0, 100, by = 25), ## Right y-axis labels/breaks incorrect
                                          labels = paste0(seq(0, 100, by = 25), ""))) +
   labs(title = chart_title("CiC - total count"), x = "Date", y = "CiC") +
   scale_colour_manual(name="Population",values=cols) +
