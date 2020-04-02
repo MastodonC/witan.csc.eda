@@ -329,8 +329,8 @@ placement.transitions.grouped <- placement.transitions %>% mutate(admission_age 
   group_by(transition_year, admission_age, placement, next_placement, CIN, legal_status) %>%
   summarise(n = n())
 
-min_year <- min(placement.transitions.grouped$transition_year, na.rm = TRUE)
-max_year <- max(placement.transitions.grouped$transition_year, na.rm = TRUE) - 1
+min_year <- min(placement.transitions.grouped$transition_year)
+max_year <- max(placement.transitions.grouped$transition_year) - 1
 
 for (year in max_year:min_year) {
   print(paste("Testing year ", year))
