@@ -82,6 +82,9 @@ date_between <- function(start, end) {
   as.Date(out)
 }
 
+to_nearest <- function(x, y) {
+  round(x / y) * y
+}
 
 
 ## FIXME: This is the function that needs to be fixed to handle -1 ages
@@ -561,10 +564,6 @@ ggsave(chart_path("entry-age-duration-scatter.png"), width = 11, height = 8)
 
 ## For comparison - from raw data without survival analysis
 
-to_nearest <- function(x, y) {
-  round(x / y) * y
-}
-
 periods %>%
   filter(event == 1, as.integer(as.character(admission_age)) < 18) %>%
   mutate(duration_yrs = duration / 365.0, admission_age = factor(admission_age, levels = 0:18)) %>%
@@ -703,7 +702,7 @@ max_n <- max((results %>% group_by(date) %>% summarise(n = n()))$n)
 results %>% group_by(date) %>% summarise(n = n()) %>%
   ggplot(aes(date, n)) +
   geom_line(color = tableau_color_pal("Tableau 20")(1), size = 0.6) +
-  scale_y_continuous(limits = c(0,to_nearest(max_n, 100))) +
+  scale_y_continuous(limits = c(0,to_nearest(max_n+100, 100))) +
   labs(title = chart_title("CiC - total count"), x = "Date", y = "CiC") +
   theme_mastodon
 
@@ -904,7 +903,7 @@ ggsave(chart_path("joiners-leaver-rate.png"), width = 11, height = 8)
 ## FIXME: DOB not found
 monthly_leavers_age <- periods %>%
   mutate(month = floor_date(end, "month"),
-         exit_age = round(as.numeric(end - as.Date(paste0(DOB,"-07-31"))) / 365.0)) %>%
+         exit_age = round(as.numeric(end - as.Date(paste0(birth_year,"-07-31"))) / 365.0)) %>%
   group_by(exit_age, month) %>%
   summarise(n = n()) %>%
   dcast(month ~ exit_age, fill = 0) %>%
@@ -1016,3 +1015,58 @@ melt(qs.imputed, id.vars = c("admission_age"), value.name = "duration") %>%
   labs(x = "Admission age", y = "Duration (years)", title = chart_title("Inferred duration boxplots"))
 
 ggsave(chart_path("inferred-duration-boxplot.png"), width = 11, height = 8)
+
+
+## Let's look at the output episodes
+
+date_month <- function(x){
+  d <- x
+  mday(d) <- 1
+  d
+}
+
+simulated_episodes <- 'simulated_episodes.csv'
+episodes <- read.csv(simulated_episodes, stringsAsFactors = FALSE)
+episodes$Birthday <- ymd(episodes$Birthday)
+episodes$Start <- ymd(episodes$Start)
+episodes$End <- ymd(episodes$End)
+episodes %>% filter(Episode == 1) %>%
+  mutate(age = factor(floor(interval(Birthday, Start) / years(1))),
+         month = date_month(Start)) %>%
+  group_by(age, month) %>%
+  summarise(n = n()) %>%
+  filter(age %in% c(15, 16, 17)) %>%
+  ggplot(aes(month, n, color = age)) +
+  geom_line()
+
+months <- data.frame(month = ymd(seq(ymd("2018-01-01"), ymd("2022-03-01"), by = "month")))
+period_counts <- episodes %>%
+  group_by(ID, Birthday) %>%
+  summarise(Start = min(Start), End = max(End)) %>%
+  mutate(join = "x") %>%
+  full_join(cbind(months, join = "x"), by = "join") %>%
+  mutate(join_age = factor(year_diff(as.POSIXct(Birthday,format="%Y-%m-%d"), as.POSIXct(Start,format="%Y-%m-%d"))),
+         current_age = factor(year_diff(as.POSIXct(Birthday,format="%Y-%m-%d"), as.POSIXct(month,format="%Y-%m-%d"))),
+         joined_this_age = factor(current_age == join_age)) %>%
+  filter(Start <= month & (is.na(End) | End > month)) %>%
+  group_by(month, join_age, joined_this_age, current_age) %>%
+  summarise(n = n())
+
+period_counts %>%
+  filter(joined_this_age == TRUE & join_age %in% c(15, 16, 17)) %>%
+  ggplot(aes(month, n, color = join_age)) +
+  geom_line()
+
+period_counts %>%
+  filter(joined_this_age == FALSE & join_age %in% c(15, 16, 17)) %>%
+  group_by(month, join_age)%>% summarise(n = sum(n)) %>%
+  ggplot(aes(month, n, color = join_age)) +
+  geom_line()
+
+period_counts %>%
+  filter(current_age %in% c(15, 16, 17)) %>%
+  group_by(month, current_age)%>% summarise(n = sum(n)) %>%
+  ggplot(aes(month, n, color = current_age)) +
+  geom_line()
+
+
