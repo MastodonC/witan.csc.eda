@@ -459,7 +459,7 @@ joiners.model <- bayesglm(diff ~ beginning * admission_age, data = diffs %>% fil
 
 joiner.projection <- function(diffs, from, to) {
   grid<- expand.grid(admission_age = factor(as.character(0:17), levels = as.character(0:17)), beginning = seq(from,to,'weeks'))
-  joiners.model <- bayesglm(diff ~ beginning * admission_age, data = diffs %>% filter(beginning >= from), family=Gamma(link = log))
+  joiners.model <- bayesglm(diff ~ beginning * admission_age, data = diffs %>% filter(beginning >= from), family=Gamma(link = log),drop.unused.levels = FALSE)
   family <- family(joiners.model)
   ilink <- family$linkinv
   grid <- bind_cols(grid, setNames(as_tibble(predict(joiners.model, grid, se.fit = TRUE)[1:2]), c('fit_link','se_link'))) %>%
