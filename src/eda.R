@@ -12,6 +12,9 @@ library(survminer)
 library(zoo)
 library(networkD3)
 library(fitdistrplus)
+library(rbokeh)
+library(htmlwidgets)
+library(htmltools)
 
 ## Update with name of local authority
 ## la_label <- "Your_LA_Here"
@@ -586,67 +589,89 @@ ggsave(chart_path("exit-age-distribution-unadjusted.png"), width = 11, height = 
 
 ## Sankey charts
 
-sankey.transitions <- episodes %>%
-  dplyr::select(period_id, phase_number, placement) %>%
-  filter(period_id %in% (periods %>% filter(!is.na(end)))$period_id) %>%
-  unique %>%
-  arrange(period_id, phase_number) %>%
-  group_by(period_id) %>%
-  mutate(next_placement = coalesce(lead(placement),"OUT")) %>%
-  group_by(phase_number, placement, next_placement) %>%
-  summarise(n = n()) %>%
-  ungroup
+include_open_periods <- TRUE
 
-sankey.placements <- function(transitions, level) {
-  if (level == 1) {
-    transitions %>%
-      filter(phase_number == 1) %>%
-      dplyr::select(placement) %>%
+for (age.entry in 0:17) {
+  for (year.entry in 2015:2018) {
+    sankey.transitions <- episodes %>%
+      group_by(period_id) %>%
+      mutate(age_entry = year_diff(birthday, min(report_date)), year_entry = year(min(report_date)), open_period = is.na(max(ceased))) %>%
+      filter(age_entry == age.entry & year_entry == year.entry) %>%
+      dplyr::select(period_id, phase_number, placement, open_period) %>%
+      filter(ifelse(include_open_periods, TRUE, !open_period)) %>%
       unique %>%
-      arrange(placement) %>%
-      mutate(id = 1:length(placement) - 1) %>%
+      arrange(period_id, phase_number) %>%
+      group_by(period_id) %>%
+      mutate(next_placement = coalesce(lead(placement),ifelse(open_period, "?", "OUT"))) %>%
+      group_by(phase_number, placement, next_placement) %>%
+      summarise(n = n()) %>%
+      ungroup
+    
+    sankey.placements <- function(transitions, level) {
+      if (level == 1) {
+        transitions %>%
+          filter(phase_number == 1) %>%
+          dplyr::select(placement) %>%
+          unique %>%
+          arrange(placement) %>%
+          mutate(id = 1:length(placement) - 1) %>%
+          as.data.frame
+      } else {
+        transitions %>%
+          filter(phase_number == level - 1) %>%
+          dplyr::select(next_placement) %>%
+          unique %>%
+          arrange(next_placement) %>%
+          mutate(id = 1:length(next_placement) - 1) %>%
+          rename(placement = next_placement) %>%
+          as.data.frame
+      }
+    }
+    
+    nodes <- data.frame(placement = c(), id = c(), level = c())
+    start <- sankey.placements(sankey.transitions, 1)
+    nodes <- cbind(start, level = 1)
+
+    # How many levels wide should our Sankey be?
+    for (level in 2:4) {
+      dat <- tryCatch({sankey.placements(sankey.transitions, level)}, error = function(e) {})
+      if(!is.null(dat)) {
+        new_nodes <- cbind(dat, level = level)
+        new_nodes$id <- new_nodes$id + nrow(nodes)
+        nodes <- rbind(nodes, new_nodes)
+      }
+    }
+    
+    links <- sankey.transitions %>%
+      inner_join(nodes, by = c("phase_number" = "level", "placement" = "placement")) %>%
+      inner_join(nodes %>% mutate(level = level - 1), by = c("phase_number" = "level", "next_placement" = "placement")) %>%
+      rename(source = id.x, target = id.y, value = n) %>%
       as.data.frame
-  } else {
-    transitions %>%
-      filter(phase_number == level - 1) %>%
-      dplyr::select(next_placement) %>%
-      unique %>%
-      arrange(next_placement) %>%
-      mutate(id = 1:length(next_placement) - 1) %>%
-      rename(placement = next_placement) %>%
-      as.data.frame
+
+    sankeyNetwork(Links = links, Nodes = nodes, Source = "source",
+                  Target = "target", Value = "value", NodeID = "placement",
+                  NodeGroup = "placement",
+                  units = "TWh", fontSize = 12, nodeWidth = 30,
+                  sinksRight = FALSE,
+                  height = 600,
+                  width = 800,
+                  colourScale = JS('d3.scaleOrdinal()
+                    .domain(["A3","A4","A5","A6","H5","K1","K2","M2","M3","P1","P2","Q1","Q2","R1","R2","R3","R5","S1", "T1", "Z1","OUT", "?"])
+                                     .range(["#4E79A7","#A0CBE8","#F28E2B","#FFBE7D","#59A14F","#8CD17D","#B6992D","#F1CE63","#499894","#86BCB6",
+                                     "#E15759","#FF9D9A","#79706E","#BAB0AC","#D37295","#FABFD2","#B07AA1","#D4A6C8","#9D7660","#D7B5A6", "#FFFFFF", "#FFFFFF"])')) %>%
+      htmlwidgets::prependContent(htmltools::tags$h2(paste("Age", age.entry, "joiners in", year.entry))) %>%
+      widget2png(paste0("age_", age.entry, "_year_", year.entry, "_incl_open.png"))
   }
 }
 
-nodes <- data.frame(placement = c(), id = c(), level = c())
-start <- sankey.placements(sankey.transitions, 1)
-nodes <- cbind(start, level = 1)
-for (level in 2:3) {
-  new_nodes <- cbind(sankey.placements(sankey.transitions, level), level = level)
-  new_nodes$id <- new_nodes$id + nrow(nodes)
-  nodes <- rbind(nodes, new_nodes)
-}
+counts <- episodes %>%
+  dplyr::group_by(period_id) %>%
+  dplyr::summarise(age_entry = year_diff(min(birthday), min(report_date)), year_entry = year(min(report_date)), open_period = ifelse(is.na(max(ceased)), "open", "closed")) %>%
+  dplyr::group_by(age_entry, year_entry, open_period) %>%
+  dplyr::summarise(n = n_distinct(period_id)) %>%
+  filter(year_entry %in% 2015:2018)
 
-
-
-links <- sankey.transitions %>%
-  inner_join(nodes, by = c("phase_number" = "level", "placement" = "placement")) %>%
-  inner_join(nodes %>% mutate(level = level - 1), by = c("phase_number" = "level", "next_placement" = "placement")) %>%
-  rename(source = id.x, target = id.y, value = n) %>%
-  as.data.frame
-
-print(sankeyNetwork(Links = links, Nodes = nodes, Source = "source",
-                    Target = "target", Value = "value", NodeID = "placement",
-                    NodeGroup = "placement",
-                    units = "TWh", fontSize = 12, nodeWidth = 30,
-                    sinksRight = FALSE,
-                    colourScale = JS('d3.scaleOrdinal()
-                    .domain(["A3","A4","A5","A6","H5","K1","K2","M2","M3","P1","P2","Q1","Q2","R1","R2","R3","R5","S1", "T1", "Z1","OUT"])
-                                     .range(["#4E79A7","#A0CBE8","#F28E2B","#FFBE7D","#59A14F","#8CD17D","#B6992D","#F1CE63","#499894","#86BCB6",
-                                     "#E15759","#FF9D9A","#79706E","#BAB0AC","#D37295","#FABFD2","#B07AA1","#D4A6C8","#9D7660","#D7B5A6", "#FFFFFF"])')
-                    ))
-
-## TODO: Find a good way to save the sankey
+write.csv(dcast(counts, age_entry + year_entry ~ open_period, fill = 0), "child_counts_age_year.csv")
 
 ## Individual historic sequences
 
