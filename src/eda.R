@@ -789,7 +789,7 @@ max_n <- max((results %>% group_by(date) %>% summarise(n = n()))$n)
 results %>% group_by(date) %>% summarise(n = n()) %>%
   ggplot(aes(date, n)) +
   geom_line(color = tableau_color_pal("Tableau 20")(1), size = 0.6) +
-  scale_y_continuous(limits = c(0,to_nearest(max_n, 100))) +
+  scale_y_continuous(limits = c(0,max_n)) +
   labs(title = chart_title("CiC - total count"), x = "Date", y = "CiC") +
   theme_mastodon
 
@@ -848,7 +848,7 @@ cols <- c("CiC"=green_orange[1],"LA"=green_orange[2])
 ggplot(NULL, aes(date, n)) +
   geom_line(data = total_la, size = 0.6, aes(y = n / factor, colour = "LA")) +
   geom_line(data = total_cic, size = 0.6, aes(colour = "CiC")) +
-  scale_y_continuous(limits = c(0,to_nearest(max_y, 100)),
+  scale_y_continuous(limits = c(0,max_y),
                      sec.axis = sec_axis(~.*factor, name = "LA population 0-17 (thousands)",
                                          labels = paste0(seq(0, 100, by = 25), ""))) +
   labs(title = chart_title("CiC - total count"), x = "Date", y = "CiC") +
