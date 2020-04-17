@@ -67,6 +67,22 @@ year_start <- function(year) {
   as.Date(paste0(year, "-01-01"))
 }
 
+right <- function(x, n) {
+  substr(x, nchar(x)-n+1, nchar(x))
+}
+
+left <- function(x, n) {
+  substr(x, 1, n)
+}
+
+month_start <- function(mmyyyy) {
+  as.Date(paste0(right(mmyyyy, 4), "-", left(mmyyyy, 2), "-01"))
+}
+
+month_end <- function(mmyyyy) {
+  month_start(mmyyyy) + months(1) - days(1)
+}
+
 year_end <- function(year) {
   year_start(year + 1) - 1
 }
@@ -91,6 +107,12 @@ date_between <- function(start, end) {
 imputed_birthday <- function(birth_year, min_start, max_cease) {
   earliest_possible <- max(max_cease - days(floor(18 * 365.25)) + 1, year_start(birth_year))
   latest_possible <- min(min_start, year_end(birth_year))
+  date_between(earliest_possible, latest_possible)
+}
+
+imputed_birthday_month <- function(yyyymm, min_start, max_cease) {
+  earliest_possible <- max(max_cease - days(floor(18 * 365.25)) + 1, month_start(yyyymm))
+  latest_possible <- min(min_start, month_end(yyyymm))
   date_between(earliest_possible, latest_possible)
 }
 
