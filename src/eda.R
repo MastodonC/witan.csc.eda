@@ -413,7 +413,7 @@ transitions_summary %>%
 ggsave(chart_path("q2-transitions-age-zoom.png"), width = 14, height = 7)
 
 ## Leaver rate by month
-dates <-  data.frame(day = seq(as.Date("2015-03-01"), as.Date("2018-03-01"), "month"),
+dates <-  data.frame(day = seq(as.Date("2015-03-01"), end_date, "month"),
                      join = "x")
 periods_table <- periods %>%
   mutate(end = if_else(is.na(end), as.Date("2050-01-01"), end),
