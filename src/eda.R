@@ -848,8 +848,7 @@ cols <- c("CiC"=green_orange[1],"LA"=green_orange[2])
 ggplot(NULL, aes(date, n)) +
   geom_line(data = total_la, size = 0.6, aes(y = n / factor, colour = "LA")) +
   geom_line(data = total_cic, size = 0.6, aes(colour = "CiC")) +
-  scale_y_continuous(limits = c(0,max_y),
-                     sec.axis = sec_axis(~.*factor, name = "LA population 0-17 (thousands)",
+  scale_y_continuous(sec.axis = sec_axis(~.*factor, name = "LA population 0-17 (thousands)",
                                          labels = paste0(seq(0, 100, by = 25), ""))) +
   labs(title = chart_title("CiC - total count"), x = "Date", y = "CiC") +
   scale_colour_manual(name="Population",values=cols) +
