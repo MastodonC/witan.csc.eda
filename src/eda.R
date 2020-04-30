@@ -407,15 +407,15 @@ joiner.projection <- function(diffs, from, to) {
 }
 
 max_date <- max(periods$end, na.rm = TRUE)
-grid3 <- joiner.projection(diffs, max_date - years(3), max_date + years(5))
-grid4 <- joiner.projection(diffs, max_date - years(4), max_date + years(5))
-grid.all <- rbind(cbind(grid3, input = "3 years"), cbind(grid4, input = "4 years"))
+grid3 <- joiner.projection(diffs, max_date - years(3), max_date + years(10))
+grid4 <- joiner.projection(diffs, max_date - years(6), max_date + years(10))
+grid.all <- rbind(cbind(grid3, input = "3 years"), cbind(grid4, input = "6 years"))
 
 ggplot(grid.all, aes(x = beginning, y = projection, color = admission_age)) +
   geom_line(aes(linetype = input)) +
   facet_wrap(vars(admission_age), scale = "free") +
   scale_color_manual(values = tableau_color_pal("Tableau 20")(20), guide = "none") +
-  labs(x = "Date", y = "Inter-arrival time (days)", title = chart_title("Projected mean inter-arrival time by age of entry (3 & 4 years historic data)"),
+  labs(x = "Date", y = "Inter-arrival time (days)", title = chart_title("Projected mean inter-arrival time by age of entry (3 & 6 years historic data)"),
        linetype = "Input history")
 
 ggplot(grid.all, aes(x = beginning, y = projection)) +
@@ -424,10 +424,39 @@ ggplot(grid.all, aes(x = beginning, y = projection)) +
   facet_wrap(vars(admission_age), scale = "free") +
   coord_cartesian(ylim = c(0, 100)) +
   scale_color_manual(values = tableau_color_pal("Tableau 20")(20), guide = "none") +
-  labs(x = "Date", y = "Inter-arrival time (days)", title = chart_title("Projected mean inter-arrival time by age of entry (3 & 4 years historic data)"),
+  labs(x = "Date", y = "Inter-arrival time (days)", title = chart_title("Projected mean inter-arrival time by age of entry (3 & 6 years historic data)"),
        linetype = "Input history", fill = "Input history")
 
-ggsave(chart_path("inter-arrival-time.png"), width = 14, height = 7)
+## Prepare to turn projected interarrival time into projected joiner actuals:
+
+projected.joiners <- function(diffs, from, to) {
+  # Calculate interarrival time quarterly
+  grid <- expand.grid(admission_age = factor(as.character(0), levels = as.character(0)), beginning = seq(from,to,'3 months'))
+  joiners.model <- bayesglm(diff ~ beginning * admission_age, data = diffs %>% filter(beginning >= from), family=Gamma(link = log))
+  family <- family(joiners.model)
+  ilink <- family$linkinv
+  grid <- bind_cols(grid, setNames(as_tibble(predict(joiners.model, grid, se.fit = TRUE)[1:2]), c('fit_link','se_link'))) %>%
+    mutate(projection  = ilink(fit_link), upper_ci = ilink(fit_link + (1.96 * se_link)), lower_ci = ilink(fit_link - (1.96 * se_link)))
+  grid
+}
+
+# Calculate quarterly joiners
+grid3 <- projected.joiners(diffs, max_date - years(3), max_date + years(10)) %>%
+  mutate(joiners = 365 / 4.0 / projection)
+grid6 <- projected.joiners(diffs, max_date - years(6), max_date + years(10))%>%
+  mutate(joiners = 365 / 4.0 / projection)
+
+ggplot(grid3, aes(beginning, joiners)) +
+  geom_line() +
+  theme_mastodon +
+  ylim(c(0, 30)) +
+  labs(title = chart_title("model trend, age 0 joiners, 3 year training data"), x = "Quarter", y = "Joiners per quarter")
+
+ggplot(grid6, aes(beginning, joiners)) +
+  geom_line() +
+  theme_mastodon +
+  ylim(c(0, 30)) +
+  labs(title = chart_title("model trend, age 0 joiners, 6 year training data"), x = "Quarter", y = "Joiners per quarter")
 
 ## TODO: loop through all ages for these charts
 admission.age = 3
