@@ -132,7 +132,7 @@ date_after <- function(date) {
 episodes <- read.csv(scrubbed_episodes, header = TRUE, stringsAsFactors = FALSE, na.strings ="NA")
 episodes$report_date <- ymd(episodes$report_date)
 episodes$ceased <- ymd(episodes$ceased)
-
+episodes <- episodes %>% mutate(DOB = as.integer(substr(DOB, str_length(DOB) - 3, str_length(DOB))))
 
 ## Remove suspicious data
 suspicious_rows <- episodes %>% filter(report_date >= Sys.Date()) ## Should return empty tibble
@@ -143,7 +143,7 @@ episodes <- episodes %>% filter(report_date < Sys.Date())
 end_date <- max(max(episodes$report_date), max(episodes$ceased, na.rm = TRUE))
 
 # Do we appear to have anyone over 18?
-
+str_length("123")
 birthdays <- episodes %>%
   group_by(ID) %>%
   summarise(birthday = imputed_birthday(DOB[1], min(report_date), coalesce(max(ceased), end_date)))
@@ -376,8 +376,8 @@ unique(results$end)
 ## Estimate trend in arrivals by age
 ## install.packages("arm")
 library(arm)
-from <- max_date - years(3)
-to <- max_date + years(5)
+from <- max_date - years(6)
+to <- max_date + years(10)
 
 grid <- expand.grid(admission_age = factor(as.character(0:17), levels = as.character(0:17)), beginning = seq(from,to,'weeks'))
 
@@ -470,6 +470,310 @@ grid.all %>%
   scale_color_manual(values = tableau_color_pal("Tableau 20")(20), guide = "none") +
   labs(x = "Date", y = "Inter-arrival time (days)", title = "Projected mean inter-arrival time by age of entry (3 & 4 years historic data)",
        linetype = "Input history", fill = "Input history")
+
+
+## Let's analyse how joiners per quarter historic and projected changes with volume of input data, starting just with age 0
+
+from <- max_date - years(1)
+
+
+plot.linear.joiners.projection <- function(periods, interval, from_date, to_date, ages) {
+  joiners.per.quarter <- periods %>%
+    arrange(admission_age, beginning) %>%
+    mutate(date = floor_date(beginning, interval)) %>%
+    group_by(admission_age, date) %>%
+    summarise(n = n()) %>%
+    as.data.frame
+  linear.model <- lm(n ~ date * admission_age, data = joiners.per.quarter %>% filter(date > from_date))
+  family <- family(linear.model)
+  ilink <- family$linkinv
+  grid <- expand.grid(admission_age = factor(ages, levels = ages), date = seq(as.Date("2019-04-01"),to,interval))
+  projected <- bind_cols(grid, setNames(as_tibble(predict(linear.model, grid, se.fit = TRUE)[1:2]), c('fit_link','se_link'))) %>%
+    mutate(projection  = ilink(fit_link), upper_ci = ilink(fit_link + (1.96 * se_link)), lower_ci = ilink(fit_link - (1.96 * se_link)))
+  
+  ggplot(rbind(joiners.per.quarter, projected %>% rename(n = projection) %>% dplyr::select(admission_age, date, n)) %>%
+           filter(admission_age %in% ages)) +
+    geom_ribbon(data = projected, aes(x = date, ymin = lower_ci, ymax = upper_ci, group = admission_age), fill = "grey", alpha = 0.2) +
+    geom_line(aes(date, n, color = admission_age)) +
+    theme_mastodon
+}
+
+plot.linear.joiners.projection(periods, "3 months", max_date - years(6), to, c(0)) +
+  labs(title = chart_title("age 0 joiners per quarter - 6 training years - linear model"),
+       x = "Quarter",
+       color = "Age")
+plot.linear.joiners.projection(periods, "3 months", max_date - years(1), to, c(0)) +
+  labs(title = chart_title("age 0 joiners per quarter - 1 training year - linear model"),
+       x = "Quarter",
+       color = "Age")
+plot.linear.joiners.projection(periods, "1 month", max_date - years(1), to, c(0)) +
+  labs(title = chart_title("age 0 joiners per month - 1 training year - linear model"),
+       x = "Month",
+       color = "Age")
+
+plot.linear.joiners.projection(periods, "1 month", max_date - years(6), to, c(0)) +
+  labs(title = chart_title("age 0 joiners per month - 6 training years - linear model"),
+       x = "Month",
+       color = "Age")
+
+plot.linear.joiners.projection(periods, "3 months",max_date - years(1), to, 0:17) +
+  labs(title = chart_title("age 0 joiners per quarter - 1 training year - linear model"),
+       x = "Quarter") +
+  scale_color_manual(values = tableau_color_pal("Tableau 20")(20))
+
+plot.linear.joiners.projection(periods, "1 months", max_date - years(1), to, 0:17) +
+  labs(title = chart_title("age 0 joiners per month - 1 training year - linear model"),
+       x = "Month", color = "Admission age") +
+  scale_color_manual(values = tableau_color_pal("Tableau 20")(20))
+
+ages <- c(0)
+plot.poisson.joiners.projection <- function(periods, interval, from_date, to_date, ages) {
+  joiners <- periods %>%
+    arrange(admission_age, beginning) %>%
+    mutate(date = floor_date(beginning, interval)) %>%
+    group_by(admission_age, date) %>%
+    summarise(n = n()) %>%
+    as.data.frame
+  poisson.model <- glm(n ~ date * admission_age, data = joiners %>% filter(date > from_date), family = "poisson")
+  print(summary(poisson.model))
+  family <- family(poisson.model)
+  ilink <- family$linkinv
+  grid <- expand.grid(admission_age = factor(ages, levels = ages), date = seq(as.Date("2019-04-01"),to,interval))
+  projected <- bind_cols(grid, setNames(as_tibble(predict(poisson.model, grid, se.fit = TRUE)[1:2]), c('fit_link','se_link'))) %>%
+    mutate(projection = ilink(fit_link), upper_ci = ilink(fit_link + (1.96 * se_link)), lower_ci = ilink(fit_link - (1.96 * se_link)))
+  
+  ggplot(rbind(joiners, projected %>% rename(n = projection) %>% dplyr::select(admission_age, date, n)) %>%
+           filter(admission_age %in% ages)) +
+    geom_ribbon(data = projected, aes(x = date, ymin = lower_ci, ymax = upper_ci, group = admission_age), fill = "grey", alpha = 0.2) +
+    geom_line(aes(date, n, color = admission_age)) +
+    theme_mastodon
+}
+
+ages <- c(0,2,3)
+plot.poisson.simulations <- function(periods, interval, from_date, to_date, ages) {
+  joiners <- periods %>%
+    arrange(admission_age, beginning) %>%
+    mutate(date = floor_date(beginning, interval)) %>%
+    group_by(admission_age, date) %>%
+    summarise(n = n()) %>%
+    as.data.frame
+  poisson.model <- glm(n ~ date * admission_age, data = joiners %>% filter(date > from), family = "poisson")
+  print(summary(poisson.model))
+  family <- family(poisson.model)
+  ilink <- family$linkinv
+  grid <- expand.grid(admission_age = factor(ages, levels = ages), date = seq(as.Date("2019-04-01"),to,interval))
+  projected <- bind_cols(grid, setNames(as_tibble(predict(poisson.model, grid, se.fit = TRUE)[1:2]), c('fit_link','se_link'))) %>%
+    mutate(projection = ilink(fit_link), upper_ci = ilink(fit_link + (1.96 * se_link)), lower_ci = ilink(fit_link - (1.96 * se_link)))
+  
+  simulated <- data.frame(admission_age = c(), date = c(), n = c(), simulation = c())
+  for (i in 1:nrow(projected)) {
+    for (sim in 1) {
+      p <- projected[i,]
+      simulated <- rbind(simulated, data.frame(admission_age = p$admission_age, date = p$date, n = rpois(1,p$projection), simulation = as.character(sim)))
+    }
+  }
+  dat <- rbind(cbind(joiners, simulation = "0"), simulated)
+  ggplot(dat %>%
+           filter(admission_age %in% ages),
+         aes(color = admission_age)) +
+    geom_line(aes(date, n, group = admission_age)) +
+    theme_mastodon
+}
+
+
+plot.poisson.joiners.projection(periods, "3 months", max_date - years(6), to, c(0)) +
+  labs(title = chart_title("age 0 joiners per quarter - 6 training years - Poisson model"),
+       x = "Quarter",
+       color = "Age")
+
+plot.poisson.joiners.projection(periods, "3 months", max_date - years(1), to, c(0)) +
+  labs(title = chart_title("age 0 joiners per quarter - 1 training years - Poisson model"),
+       x = "Quarter",
+       color = "Age") +
+  coord_cartesian(ylim = c(0, 50))
+
+
+plot.poisson.joiners.projection(periods, "1 month", max_date - years(6), to, c(0)) +
+  labs(title = chart_title("age 0 joiners per month - 6 training years - Poisson model"),
+       x = "Month",
+       color = "Age")
+
+plot.poisson.joiners.projection(periods, "1 month",max_date - years(1), to, c(0)) +
+  labs(title = chart_title("age 0 joiners per month - 1 training year - Poisson model"),
+       x = "Month",
+       color = "Age") +
+  coord_cartesian(ylim = c(0, 15))
+
+plot.poisson.joiners.projection(periods, "1 month", to, 0:17) +
+  labs(title = chart_title("age 0 joiners per quarter - 6 training years - Poisson model"),
+       x = "Month",
+       color = "Age") +
+  scale_color_manual(values = tableau_color_pal("Tableau 20")(20))
+
+plot.poisson.simulations(periods, "3 month", to, c(0,1,2)) +
+  scale_color_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  labs(title = chart_title("simulated joiners per quarter - 6 training years - Poisson model"),
+       color = "Age", x = "Quarter")
+
+plot.poisson.simulations(periods, "1 month", to, c(0,1,2)) +
+  scale_color_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  labs(title = chart_title("simulated joiners per month - 6 training years - Poisson model"),
+       color = "Age", x = "Month")
+
+plot.linear.simulations <- function(periods, interval, from_date, to_date, ages) {
+  joiners <- periods %>%
+    arrange(admission_age, beginning) %>%
+    mutate(date = floor_date(beginning, interval)) %>%
+    group_by(admission_age, date) %>%
+    summarise(n = n()) %>%
+    as.data.frame
+  poisson.model <- lm(n ~ date * admission_age, data = joiners %>% filter(date > from_date))
+  print(summary(poisson.model))
+  family <- family(poisson.model)
+  ilink <- family$linkinv
+  grid <- expand.grid(admission_age = factor(ages, levels = ages), date = seq(as.Date("2019-04-01"),to,interval))
+  projected <- bind_cols(grid, setNames(as_tibble(predict(poisson.model, grid, se.fit = TRUE)[1:2]), c('fit_link','se_link'))) %>%
+    mutate(projection = ilink(fit_link), upper_ci = ilink(fit_link + (1.96 * se_link)), lower_ci = ilink(fit_link - (1.96 * se_link)))
+  
+  simulated <- data.frame(admission_age = c(), date = c(), n = c(), simulation = c())
+  for (i in 1:nrow(projected)) {
+    for (sim in 1) {
+      p <- projected[i,]
+      simulated <- rbind(simulated, data.frame(admission_age = p$admission_age, date = p$date, n = rpois(1,p$projection), simulation = as.character(sim)))
+    }
+  }
+  dat <- rbind(cbind(joiners, simulation = "0"), simulated)
+  ggplot(dat %>%
+           filter(admission_age %in% ages),
+         aes(color = admission_age)) +
+    geom_line(aes(date, n, group = admission_age)) +
+    theme_mastodon
+}
+
+plot.linear.simulations(periods, "3 month", max_date - years(6), to, 0:17) +
+  scale_color_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  labs(title = chart_title("simulated linear joiners per quarter - 6 training years"),
+       color = "Age", x = "Quarter")
+
+plot.linear.simulations(periods, "3 month", max_date - years(1), to, 0:17) +
+  scale_color_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  labs(title = chart_title("simulated linear joiners per quarter - 1 training year"),
+       color = "Age", x = "Quarter")
+
+plot.linear.simulations(periods, "3 month", max_date - years(1), to, c(8,9)) +
+  scale_color_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  labs(title = chart_title("simulated linear joiners per quarter - 1 training year"),
+       color = "Age", x = "Quarter")
+
+
+plot.bayeslm.simulations <- function(periods, interval, from_date, to_date, ages) {
+  joiners <- periods %>%
+    arrange(admission_age, beginning) %>%
+    mutate(date = floor_date(beginning, interval)) %>%
+    group_by(admission_age, date) %>%
+    summarise(n = n()) %>%
+    as.data.frame
+  grid <- expand.grid(admission_age = factor(0:17), date = seq(min(joiners$date), max(joiners$date), interval))
+  joiners <- grid %>% left_join(joiners, by = c("admission_age", "date")) %>%
+    mutate(n = coalesce(n, as.integer(0)))
+  poisson.model <- bayesglm(n ~ date * admission_age, data = joiners %>% filter(date > from_date))
+  print(summary(poisson.model))
+  family <- family(poisson.model)
+  ilink <- family$linkinv
+  grid <- expand.grid(admission_age = factor(ages, levels = ages), date = seq(as.Date("2019-04-01"),to,interval))
+  projected <- bind_cols(grid, setNames(as_tibble(predict(poisson.model, grid, se.fit = TRUE)[1:2]), c('fit_link','se_link'))) %>%
+    mutate(projection = ilink(fit_link), upper_ci = ilink(fit_link + (1.96 * se_link)), lower_ci = ilink(fit_link - (1.96 * se_link)))
+  
+  simulated <- data.frame(admission_age = c(), date = c(), n = c(), simulation = c())
+  for (i in 1:nrow(projected)) {
+    for (sim in 1) {
+      p <- projected[i,]
+      simulated <- rbind(simulated, data.frame(admission_age = p$admission_age, date = p$date, n = rpois(1,p$projection), simulation = as.character(sim)))
+    }
+  }
+  dat <- rbind(cbind(joiners, simulation = "0"), simulated)
+  ggplot(dat %>%
+           filter(admission_age %in% ages),
+         aes(color = admission_age)) +
+    geom_line(aes(date, n, group = admission_age)) +
+    theme_mastodon
+}
+
+plot.bayeslm.simulations(periods, "3 month", max_date - years(1), to, c(8,9)) +
+  scale_color_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  labs(title = chart_title("simulated linear joiners per quarter - 1 training year (Bayes lm)"),
+       color = "Age", x = "Quarter")
+
+plot.bayeslm.simulations(periods, "3 months", max_date - years(1), to, 0:17) +
+  scale_color_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  labs(title = chart_title("simulated linear joiners per quarter - 1 training year (Bayes lm)"),
+       color = "Age", x = "Quarter") +
+  facet_wrap(vars(admission_age), nrow = 3) +
+  coord_cartesian(xlim = c(as.Date("2010-01-01"), as.Date("2030-01-01")))
+
+plot.bayeslm.simulations(periods, "1 month", max_date - years(1), to, 0:17) +
+  scale_color_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  labs(title = chart_title("simulated linear joiners per month - 1 training year (Bayes lm)"),
+       color = "Age", x = "Month") +
+  facet_wrap(vars(admission_age), nrow = 3) +
+  coord_cartesian(xlim = c(as.Date("2010-01-01"), as.Date("2030-01-01")))
+
+
+plot.bayeslm.simulations(periods, "3 months", max_date - years(6), to, 0:17) +
+  scale_color_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  labs(title = chart_title("simulated linear joiners per quarter - 6 training years (Bayes lm)"),
+       color = "Age", x = "Quarter") +
+  facet_wrap(vars(admission_age), nrow = 3) +
+  coord_cartesian(xlim = c(as.Date("2010-01-01"), as.Date("2030-01-01")))
+
+plot.bayeslm.simulations(periods, "1 month", max_date - years(6), to, 0:17) +
+  scale_color_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  labs(title = chart_title("simulated linear joiners per month - 6 training years (Bayes lm)"),
+       color = "Age", x = "Month") +
+  facet_wrap(vars(admission_age), nrow = 3) +
+  coord_cartesian(xlim = c(as.Date("2010-01-01"), as.Date("2030-01-01")))
+
+
+
+## Compare models
+interval <- "3 months"
+joiners <- periods %>%
+  arrange(admission_age, beginning) %>%
+  mutate(date = floor_date(beginning, interval)) %>%
+  group_by(admission_age, date) %>%
+  summarise(n = n()) %>%
+  mutate(age = admission_age) %>%
+  as.data.frame
+linear.model <- lm(n ~ date * admission_age, data = joiners)
+poisson.model <- glm(n ~ date * age, data = joiners, family = "poisson")
+
+## Poisson model has much lower residual sum of squares
+
+
+anova(linear.model, poisson.model)
+
+joiners.model <- bayesglm(diff ~ beginning * admission_age, data = diffs %>% filter(beginning >= from), family=Gamma(link = log))
+family <- family(joiners.model)
+ilink <- family$linkinv
+grid <- expand.grid(admission_age = factor(as.character(0), levels = as.character(0)), beginning = seq(as.Date("2019-04-01"),to,'3 months'))
+projected <- bind_cols(grid, setNames(as_tibble(predict(joiners.model, grid, se.fit = TRUE)[1:2]), c('fit_link','se_link'))) %>%
+  mutate(projection  = ilink(fit_link), upper_ci = ilink(fit_link + (1.96 * se_link)), lower_ci = ilink(fit_link - (1.96 * se_link)))
+projected.joiners.per.quarter <- projected %>%
+  mutate(n = 365  / 4 / projection) %>%
+  dplyr::rename(quarter = beginning) %>%
+  dplyr::select(admission_age, quarter, n)
+
+ggplot(rbind(joiners.per.quarter, projected.joiners.per.quarter) %>% filter(admission_age == "0"), aes(quarter, n)) +
+  geom_line() +
+  geom_ma() +
+  theme_mastodon +
+  labs(title = chart_title("age 0 joiners per quarter - 6 training years - inter-arrival model"),
+       x = "Quarter")
+
+
+
+
+
 
 ## NHpoisson
 
