@@ -842,6 +842,27 @@ total_cic <- results %>% group_by(date) %>% summarise(n = n()) %>% as.data.frame
 factor = max(total_la$n) / max(total_cic$n)
 max_y <- max(total_cic$n)
 
+starters <- episodes %>% group_by(report_date) %>% summarise(n = n()) %>% as.data.frame
+
+ceasers <- episodes %>% group_by(ceased) %>% filter(!is.na(ceased)) %>% summarise(n = n()) %>% as.data.frame
+
+ggplot(starters, aes(x=n)) + 
+  geom_histogram(binwidth = 1) +
+  labs(title = "Histogram of 'Starters'", y = "Frequency", x = "No. of New Episodes") +
+  scale_x_continuous(breaks = seq(min(starters$n), max(starters$n), 1)) +
+  theme_mastodon
+
+ggsave(chart_path("starters-histogram.png"), width = 8, height = 12)
+
+ggplot(ceasers, aes(x=n)) + 
+  geom_histogram(binwidth = 1) +
+  labs(title = "Histogram of 'Ceasers'", y = "Frequency", x = "No. of Ceased Episodes") +
+  scale_x_continuous(breaks = seq(min(ceasers$n), max(ceasers$n), 1)) +
+  theme_mastodon
+
+ggsave(chart_path("ceasers-histogram.png"), width = 8, height = 12)
+
+
 green_orange <- tableau_color_pal("Tableau 20")(5)[c(3,5)]
 
 cols <- c("CiC"=green_orange[1],"LA"=green_orange[2])
