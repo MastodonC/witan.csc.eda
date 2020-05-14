@@ -71,9 +71,18 @@ year_end <- function(year) {
   year_start(year + 1) - 1
 }
 
+month_start <- function(month) {
+  as.Date(paste0(month, "-01"))
+}
+
+month_end <- function(month) {
+  as.Date(paste0(month, "-01")) + months(1) - days(1)
+}
+
 years_before <- function(date, ys) {
   date - years(ys)
 }
+
 
 date_between <- function(start, end) {
   out <- numeric(length = length(start))
@@ -88,13 +97,24 @@ date_between <- function(start, end) {
 
 
 ## FIXME: This is the function that needs to be fixed to handle -1 ages
-imputed_birthday <- function(birth_year, min_start, max_cease) {
-  earliest_possible <- max(max_cease - days(floor(18 * 365.25)) + 1, year_start(birth_year))
-  latest_possible <- min(min_start, year_end(birth_year))
+imputed_birthday <- function(birth_month, min_start, max_cease) {
+  earliest_possible <- max(max_cease - days(floor(18 * 365.25)) + 1, month_start(birth_month))
+  latest_possible <- min(min_start, month_end(birth_month))
   date_between(earliest_possible, latest_possible)
 }
 
-## imputed_birthday(2002, ymd("2002-12-03"), ymd("2019-03-31"))
+birthday_before_date <- function(birth_date, other_date) {
+  yr <- year(other_date)
+  a <- birth_date
+  year(a) <- yr
+  b <- birth_date
+  year(b) <- (yr - 1)
+  if (a > other_date){
+    b
+  } else {
+    a
+  }
+}
 
 year_diff <- function(start, stop) {
   as.numeric(difftime(stop, start, units = "days")) %/% 365.25
@@ -130,6 +150,9 @@ date_after <- function(date) {
 }
 
 episodes <- read.csv(scrubbed_episodes, header = TRUE, stringsAsFactors = FALSE, na.strings ="NA")
+## If date format is M/YYYY
+episodes <- episodes %>% mutate(DOB = paste0(substr(DOB, str_length(DOB) - 3, str_length(DOB)), "-", sprintf("%02s", paste0(substr(DOB, 0, str_length(DOB) - 5)))))
+
 episodes$report_date <- ymd(episodes$report_date)
 episodes$ceased <- ymd(episodes$ceased)
 
@@ -161,6 +184,32 @@ under_0 <- episodes %>% group_by(ID) %>%
   filter(age < 0)
 write.csv(under_0, file.path(output_dir, "under_0.csv"))
 
+## Calculate age zero birthday distribution
+
+birthday_joiner_month_diffs <- episodes %>%
+  mutate(Date.of.birth = as.Date(paste0(DOB, "-01"))) %>%
+  group_by(ID) %>%
+  summarise(join_date = month_start(min(report_date)),
+            birth_date = month_start(min(Date.of.birth)),
+            join_age = year_diff(min(Date.of.birth), min(report_date))) %>%
+  group_by(ID, join_date, birth_date, join_age) %>%
+  mutate(birthday_before_joining = birthday_before_date(birth_date, join_date)) %>%
+  mutate(months_after_birthday = interval(birthday_before_joining, join_date) %/% months(1),
+         days_after_birthday = interval(birthday_before_joining, join_date) %/% days(1))
+
+age_0_join_ages <- data.frame(n = 0:1000, x = as.integer(quantile((birthday_joiner_month_diffs %>% filter(join_age == 0))$days_after_birthday, probs = seq(0,1,by=0.001))))
+write.csv(age_0_join_ages, file.path(output_dir, "zero_joiner_day_ages.csv"), row.names = FALSE)
+
+## Visualise the birthday distribution by age
+
+birthday_joiner_month_diffs %>%
+  ggplot(aes(months_after_birthday)) +
+  geom_histogram(bins = 10) +
+  facet_wrap(vars(join_age), scales = "free_y") +
+  theme_mastodon +
+  labs(x = "Join month following birthday", y = "Count", title = "Age 0 joiners tend to join very soon after birth")
+
+## Create periods from episodes
 
 periods <- episodes2periods(episodes)
 periods$admission_age = factor(periods$admission_age)
