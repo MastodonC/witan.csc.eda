@@ -95,8 +95,6 @@ date_between <- function(start, end) {
 }
 
 
-
-## FIXME: This is the function that needs to be fixed to handle -1 ages
 imputed_birthday <- function(birth_month, min_start, max_cease) {
   earliest_possible <- max(max_cease - days(floor(18 * 365.25)) + 1, month_start(birth_month))
   latest_possible <- min(min_start, month_end(birth_month))
@@ -198,7 +196,7 @@ birthday_joiner_month_diffs <- episodes %>%
          days_after_birthday = interval(birthday_before_joining, join_date) %/% days(1))
 
 age_0_join_ages <- data.frame(n = 0:1000, x = as.integer(quantile((birthday_joiner_month_diffs %>% filter(join_age == 0))$days_after_birthday, probs = seq(0,1,by=0.001))))
-write.csv(age_0_join_ages, file.path(output_dir, "zero_joiner_day_ages.csv"), row.names = FALSE)
+write.csv(age_0_join_ages, file.path(output_dir, "zero-joiner-day-ages.csv"), row.names = FALSE)
 
 ## Visualise the birthday distribution by age
 
