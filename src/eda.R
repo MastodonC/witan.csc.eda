@@ -158,8 +158,6 @@ date_after <- function(date) {
 }
 
 episodes <- read.csv(scrubbed_episodes, header = TRUE, stringsAsFactors = FALSE, na.strings ="NA")
-## If date format is M/YYYY
-episodes <- episodes %>% mutate(DOB = paste0(substr(DOB, str_length(DOB) - 3, str_length(DOB)), "-", sprintf("%02s", paste0(substr(DOB, 0, str_length(DOB) - 5)))))
 
 episodes$report_date <- ymd(episodes$report_date)
 episodes$ceased <- ymd(episodes$ceased)
