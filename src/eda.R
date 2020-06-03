@@ -112,7 +112,7 @@ birthday_before_date <- function(birth_date, other_date) {
 
 imputed_birthday <- function(birth_year_month, report_date) {
   earliest_possible <- as.Date(paste0(birth_year_month, "-01"), "%Y-%m-%d")
-  if(month(earliest_possible) == (month(report_date))) {
+  if(month(earliest_possible) == (month(report_date)) & year(earliest_possible) == (year(report_date))) {
     latest_possible <- report_date
   } else {
     latest_possible <- as.Date(paste0(birth_year_month, "-",
