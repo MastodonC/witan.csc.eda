@@ -150,9 +150,11 @@ date_after <- function(date) {
 
 episodes <- read.csv(scrubbed_episodes, header = TRUE, stringsAsFactors = FALSE, na.strings ="NA")
 
+## If date format is M/YYYY
+# episodes <- episodes %>% mutate(DOB = paste0(substr(DOB, str_length(DOB) - 3, str_length(DOB)), "-", sprintf("%02s", paste0(substr(DOB, 0, str_length(DOB) - 5)))))
+
 episodes$report_date <- ymd(episodes$report_date)
 episodes$ceased <- ymd(episodes$ceased)
-
 
 ## Remove suspicious data
 suspicious_rows <- episodes %>% filter(report_date >= Sys.Date()) ## Should return empty tibble
@@ -324,7 +326,7 @@ max_year <- max(placement.transitions.grouped$transition_year) - 1
 for (year in max_year:min_year) {
   print(paste("Testing year ", year))
   tab <- xtabs(n ~ transition_year + placement + next_placement + admission_age, placement.transitions.grouped %>%
-                 filter(transition_year >= year))
+                 filter(transition_year >= year & transition_year <= max_year))
   m1 <- loglm(~ transition_year + placement * next_placement * admission_age, tab)
   m2 <- loglm(~ placement * next_placement * admission_age, tab)
   res <- anova(m2, m1)
