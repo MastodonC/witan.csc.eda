@@ -109,20 +109,11 @@ birthday_before_date <- function(birth_date, other_date) {
   }
 }
 
-
-imputed_birthday <- function(birth_year_month, report_date) {
-  earliest_possible <- as.Date(paste0(birth_year_month, "-01"), "%Y-%m-%d")
-  if(month(earliest_possible) == (month(report_date)) & year(earliest_possible) == (year(report_date))) {
-    latest_possible <- report_date
-  } else {
-    latest_possible <- as.Date(paste0(birth_year_month, "-",
-                                      days_in_month(earliest_possible)), "%Y-%m-%d")
-  }
+imputed_birthday <- function(birth_month, min_start, max_cease) {
+  earliest_possible <- max(max_cease - days(floor(18 * 365.25)) + 1, month_start(birth_month))
+  latest_possible <- min(min_start, month_end(birth_month))
   date_between(earliest_possible, latest_possible)
 }
-
-## imputed_birthday("12/2002", ymd("2002-12-01"))
-
 
 year_diff <- function(start, stop) {
   as.numeric(difftime(stop, start, units = "days")) %/% 365.25
@@ -175,7 +166,7 @@ end_date <- max(max(episodes$report_date), max(episodes$ceased, na.rm = TRUE))
 
 birthdays <- episodes %>%
   group_by(ID) %>%
-  summarise(birthday = imputed_birthday(DOB[1], min(report_date)))
+  summarise(birthday = imputed_birthday(DOB[1], min(report_date), coalesce(max(ceased), end_date)))
 
 episodes <- episodes %>% inner_join(birthdays)
 
