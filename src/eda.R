@@ -304,17 +304,17 @@ write.csv(transition_counts, file.path(output_dir, "phase-transitions.csv"), row
 ## We'll create a new summary dataset which includes report_year, DOB, and phase before and after
 
 placement.transitions <- episodes %>% group_by(period_id, phase_number, placement) %>%
-  summarise(DOB = min(DOB), beginning = min(report_date), end = max(ceased), CIN = care_status[1], legal_status = legal_status[1]) %>%
+  summarise(birthday = min(birthday), DOB = min(DOB), beginning = min(report_date), end = max(ceased), CIN = care_status[1], legal_status = legal_status[1]) %>%
   as.data.frame %>% arrange(period_id, phase_number) %>%
   group_by(period_id) %>% mutate(next_placement = lead(placement)) %>%
   filter(!is.na(next_placement)) %>%
   mutate(transition_year = year(end + days(275)))
 
-transition_age <- function(end_of_placment, month_of_birth) {
-  floor(time_length(difftime(end_of_placment, as.Date(paste0(month_of_birth, "-01"), "%Y-%m-%d")), "years"))
+transition_age <- function(end_of_placment, birthday) {
+  floor(time_length(difftime(end_of_placment, birthday), "years"))
 }
 
-placement.transitions.grouped <- placement.transitions %>% mutate(admission_age = transition_age(end,DOB)) %>%
+placement.transitions.grouped <- placement.transitions %>% mutate(admission_age = transition_age(end,birthday)) %>%
   group_by(transition_year, admission_age, placement, next_placement, CIN, legal_status) %>%
   summarise(n = n())
 
@@ -558,8 +558,7 @@ d <- 0.5
 
 for (i in 1:n.times){
   data <- sample_n(periods, nrow(periods), replace = TRUE)
-  data <- data %>% mutate(birthday = imputed_birthday(birth_year, beginning))  %>%
-    mutate(AOA = floor(interval(birthday, beginning) / years(1)),
+  data <- data %>% mutate(AOA = floor(interval(birthday, beginning) / years(1)),
            duration_yrs = duration / 365.0)
   data$AOA <- factor(data$AOA)
   fit <- survfit(Surv(duration_yrs, event) ~ AOA, data = data)
