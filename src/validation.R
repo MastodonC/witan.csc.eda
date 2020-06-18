@@ -160,7 +160,7 @@ output_all_charts <- function(train_yrs) {
     filter(date > as.Date("2018-12-01"))
   
   leave_projected_ci <- join_leave_projected %>%
-    mutate(Leave = floor_date(Join, unit = "month")) %>%
+    mutate(Leave = floor_date(Leave, unit = "month")) %>%
     rename(date = Leave) %>%
     group_by(date, Simulation) %>%
     summarise(n = n()) %>%
