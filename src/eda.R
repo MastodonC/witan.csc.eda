@@ -19,14 +19,15 @@ library(htmltools)
 ## Update with name of local authority
 ## la_label <- "Your_LA_Here"
 ## districts <- c("LA", "Districts", "Here")
-## output_root <- root of where files should go
-## scrubbed_episodes <- path to input scrubbed.episodes.csv
+## output_root <- root of where your files should go
+## scrubbed_episodes <- path to input episodes.scrubbed.csv
 
 output_dir <- file.path(output_root, Sys.Date())
 
 ## create our dated data output subdir if it doesn't exist
-if(!dir.exists(output_dir))
+if(!dir.exists(output_dir)) {
     dir.create(output_dir)
+}
 
 chart_title <- function(title){
   paste(la_label, "-", title)
@@ -95,12 +96,6 @@ date_between <- function(start, end) {
 }
 
 
-imputed_birthday <- function(birth_month, min_start, max_cease) {
-  earliest_possible <- max(max_cease - days(floor(18 * 365.25)) + 1, month_start(birth_month))
-  latest_possible <- min(min_start, month_end(birth_month))
-  date_between(earliest_possible, latest_possible)
-}
-
 birthday_before_date <- function(birth_date, other_date) {
   yr <- year(other_date)
   a <- birth_date
@@ -112,6 +107,12 @@ birthday_before_date <- function(birth_date, other_date) {
   } else {
     a
   }
+}
+
+imputed_birthday <- function(birth_month, min_start, max_cease) {
+  earliest_possible <- max(max_cease - days(floor(18 * 365.25)) + 1, month_start(birth_month))
+  latest_possible <- min(min_start, month_end(birth_month))
+  date_between(earliest_possible, latest_possible)
 }
 
 year_diff <- function(start, stop) {
@@ -148,8 +149,6 @@ date_after <- function(date) {
 }
 
 episodes <- read.csv(scrubbed_episodes, header = TRUE, stringsAsFactors = FALSE, na.strings ="NA")
-## If date format is M/YYYY
-episodes <- episodes %>% mutate(DOB = paste0(substr(DOB, str_length(DOB) - 3, str_length(DOB)), "-", sprintf("%02s", paste0(substr(DOB, 0, str_length(DOB) - 5)))))
 
 episodes$report_date <- ymd(episodes$report_date)
 episodes$ceased <- ymd(episodes$ceased)
@@ -305,13 +304,17 @@ write.csv(transition_counts, file.path(output_dir, "phase-transitions.csv"), row
 ## We'll create a new summary dataset which includes report_year, DOB, and phase before and after
 
 placement.transitions <- episodes %>% group_by(period_id, phase_number, placement) %>%
-  summarise(DOB = min(DOB), beginning = min(report_date), end = max(ceased), CIN = care_status[1], legal_status = legal_status[1]) %>%
+  summarise(birthday = min(birthday), DOB = min(DOB), beginning = min(report_date), end = max(ceased), CIN = care_status[1], legal_status = legal_status[1]) %>%
   as.data.frame %>% arrange(period_id, phase_number) %>%
   group_by(period_id) %>% mutate(next_placement = lead(placement)) %>%
   filter(!is.na(next_placement)) %>%
   mutate(transition_year = year(end + days(275)))
 
-placement.transitions.grouped <- placement.transitions %>% mutate(admission_age = transition_year - DOB) %>%
+transition_age <- function(end_of_placment, birthday) {
+  floor(time_length(difftime(end_of_placment, birthday), "years"))
+}
+
+placement.transitions.grouped <- placement.transitions %>% mutate(admission_age = transition_age(end,birthday)) %>%
   group_by(transition_year, admission_age, placement, next_placement, CIN, legal_status) %>%
   summarise(n = n())
 
@@ -399,7 +402,7 @@ transitions_summary %>%
 ggsave(chart_path("q2-transitions-age-zoom.png"), width = 14, height = 7)
 
 ## Leaver rate by month
-dates <-  data.frame(day = seq(as.Date("2015-03-01"), as.Date("2018-03-01"), "month"),
+dates <-  data.frame(day = seq(as.Date("2015-03-01"), end_date, "month"),
                      join = "x")
 periods_table <- periods %>%
   mutate(end = if_else(is.na(end), as.Date("2050-01-01"), end),
@@ -555,8 +558,7 @@ d <- 0.5
 
 for (i in 1:n.times){
   data <- sample_n(periods, nrow(periods), replace = TRUE)
-  data <- data %>% mutate(birthday = date_after(if_else(year(beginning) == birth_year, beginning, ymd(paste0(birth_year, "-01-01")))))  %>%
-    mutate(AOA = floor(interval(birthday, beginning) / years(1)),
+  data <- data %>% mutate(AOA = floor(interval(birthday, beginning) / years(1)),
            duration_yrs = duration / 365.0)
   data$AOA <- factor(data$AOA)
   fit <- survfit(Surv(duration_yrs, event) ~ AOA, data = data)
@@ -578,6 +580,7 @@ for (i in 1:n.times){
   wide.pdf <- wide.cdf.imputed - cbind(0,wide.cdf.imputed[,1:ncol(wide.cdf.imputed)-1])
   result <- result + wide.pdf
 }
+
 result <- result / n.times
 colnames(result) <- seq(0,(18 + d),by=d)
 long.pdf <- melt(result) %>% filter(value > 0) %>% mutate(Var1 = factor(Var1), Var2 = factor(Var2))
@@ -653,7 +656,7 @@ for (age.entry in 0:17) {
       group_by(phase_number, placement, next_placement) %>%
       summarise(n = n()) %>%
       ungroup
-    
+
     sankey.placements <- function(transitions, level) {
       if (level == 1) {
         transitions %>%
@@ -674,7 +677,7 @@ for (age.entry in 0:17) {
           as.data.frame
       }
     }
-    
+
     nodes <- data.frame(placement = c(), id = c(), level = c())
     start <- sankey.placements(sankey.transitions, 1)
     nodes <- cbind(start, level = 1)
@@ -688,7 +691,7 @@ for (age.entry in 0:17) {
         nodes <- rbind(nodes, new_nodes)
       }
     }
-    
+
     links <- sankey.transitions %>%
       inner_join(nodes, by = c("phase_number" = "level", "placement" = "placement")) %>%
       inner_join(nodes %>% mutate(level = level - 1), by = c("phase_number" = "level", "next_placement" = "placement")) %>%
@@ -707,7 +710,7 @@ for (age.entry in 0:17) {
                                      .range(["#4E79A7","#A0CBE8","#F28E2B","#FFBE7D","#59A14F","#8CD17D","#B6992D","#F1CE63","#499894","#86BCB6",
                                      "#E15759","#FF9D9A","#79706E","#BAB0AC","#D37295","#FABFD2","#B07AA1","#D4A6C8","#9D7660","#D7B5A6", "#FFFFFF", "#FFFFFF"])')) %>%
       htmlwidgets::prependContent(htmltools::tags$h2(paste("Age", age.entry, "joiners in", year.entry))) %>%
-      widget2png(paste0("age_", age.entry, "_year_", year.entry, "_incl_open.png"))
+      widget2png(chart_path(paste0("age_", age.entry, "_year_", year.entry, "_incl_open.png")))
   }
 }
 
@@ -774,7 +777,7 @@ max_n <- max((results %>% group_by(date) %>% summarise(n = n()))$n)
 results %>% group_by(date) %>% summarise(n = n()) %>%
   ggplot(aes(date, n)) +
   geom_line(color = tableau_color_pal("Tableau 20")(1), size = 0.6) +
-  scale_y_continuous(limits = c(0,to_nearest(max_n, 100))) +
+  scale_y_continuous(limits = c(0,max_n)) +
   labs(title = chart_title("CiC - total count"), x = "Date", y = "CiC") +
   theme_mastodon
 
@@ -816,7 +819,7 @@ ggplot(results, aes(date, fill = placement)) +
 ggsave(chart_path("placement.png"), width = 11, height = 8)
 
 ## TODO: Get the districts sorted to drive this loop
-snpp <- read.csv("2016 SNPP Population persons.csv")
+snpp <- read.csv("data/2016 SNPP Population persons.csv")
 length(unique(snpp[snpp$AREA_NAME %in% districts,"AREA_NAME"]))
 snpp_la <- colSums(snpp[snpp$AREA_NAME %in% districts & snpp$AGE_GROUP %in% 0:17, 6:ncol(snpp)])
 
@@ -827,13 +830,34 @@ total_cic <- results %>% group_by(date) %>% summarise(n = n()) %>% as.data.frame
 factor = max(total_la$n) / max(total_cic$n)
 max_y <- max(total_cic$n)
 
+starters <- episodes %>% group_by(report_date) %>% summarise(n = n()) %>% as.data.frame
+
+ceasers <- episodes %>% group_by(ceased) %>% filter(!is.na(ceased)) %>% summarise(n = n()) %>% as.data.frame
+
+ggplot(starters, aes(x=n)) + 
+  geom_histogram(binwidth = 1) +
+  labs(title = "Histogram of 'Starters'", y = "Frequency", x = "No. of New Episodes") +
+  scale_x_continuous(breaks = seq(min(starters$n), max(starters$n), 1)) +
+  theme_mastodon
+
+ggsave(chart_path("starters-histogram.png"), width = 8, height = 12)
+
+ggplot(ceasers, aes(x=n)) + 
+  geom_histogram(binwidth = 1) +
+  labs(title = "Histogram of 'Ceasers'", y = "Frequency", x = "No. of Ceased Episodes") +
+  scale_x_continuous(breaks = seq(min(ceasers$n), max(ceasers$n), 1)) +
+  theme_mastodon
+
+ggsave(chart_path("ceasers-histogram.png"), width = 8, height = 12)
+
+
+green_orange <- tableau_color_pal("Tableau 20")(5)[c(3,5)]
 
 cols <- c("CiC"=green_orange[1],"LA"=green_orange[2])
 ggplot(NULL, aes(date, n)) +
   geom_line(data = total_la, size = 0.6, aes(y = n / factor, colour = "LA")) +
   geom_line(data = total_cic, size = 0.6, aes(colour = "CiC")) +
-  scale_y_continuous(limits = c(0,to_nearest(max_y, 100)),
-                     sec.axis = sec_axis(~.*factor, name = "LA population 0-17 (thousands)",
+  scale_y_continuous(sec.axis = sec_axis(~.*factor, name = "LA population 0-17 (thousands)",
                                          labels = paste0(seq(0, 100, by = 25), ""))) +
   labs(title = chart_title("CiC - total count"), x = "Date", y = "CiC") +
   scale_colour_manual(name="Population",values=cols) +
@@ -842,8 +866,6 @@ ggplot(NULL, aes(date, n)) +
 ggsave(chart_path("population-growth.png"), width = 8, height = 12)
 
 ## Monthly joiner rates comparison
-
-green_orange <- tableau_color_pal("Tableau 20")(5)[c(3,5)]
 
 dates <- data.table(month = seq(min_date, max_date, "month"))
 episodes_table <- as.data.table(episodes %>% mutate(ceased = ifelse(is.na(ceased), as.Date("2050-01-01"), episodes$ceased)))
@@ -976,7 +998,7 @@ ggsave(chart_path("joiners-leaver-rate.png"), width = 11, height = 8)
 
 monthly_leavers_age <- periods %>%
   mutate(month = floor_date(end, "month"),
-         exit_age = round(as.numeric(end - as.Date(paste0(birth_year,"-07-31"))) / 365.0)) %>%
+         exit_age = round(as.numeric(end - birthday) / 365.0)) %>%
   group_by(exit_age, month) %>%
   summarise(n = n()) %>%
   dcast(month ~ exit_age, fill = 0) %>%

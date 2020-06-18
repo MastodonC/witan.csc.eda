@@ -4,6 +4,10 @@
 library(dplyr)
 library(lubridate)
 
+## Update with episodes data from SSDA903
+## raw_episodes <- "data/episodes.csv"
+## scrubbed_episodes <- "data/episodes.scrubbed.csv
+
 parse.dates <- function(episodes) {
   episodes$report_date <- ymd(episodes$report_date)
   episodes$ceased <- ymd(episodes$ceased)
