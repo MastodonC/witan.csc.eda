@@ -1,5 +1,6 @@
 library(dplyr)
 library(lubridate)
+library(tidyquant)
 
 theme_mastodon <- theme(plot.title = element_text(family = "Open Sans SemiBold", hjust = 0.5, size = 20,
                                                   margin = margin(0,0,15,0)),
@@ -316,4 +317,131 @@ output_all_charts <- function(la_label, train_yrs, project_yrs) {
   embed_fonts(file = output_file,outfile = output_file)
 }
 
+
+plot_summary <- function(input_dir, train_yrs, project_yrs, test.placement) {
+  projection_name <- paste0("episodes-rewind-1yr-train-", train_yrs, "yr-project-", project_yrs, "yr-runs-100-seed-42")
+  projected_episodes <- file.path(input_dir, paste0(projection_name, "-episodes-filter.csv"))
+  projected_episodes <- read.csv(projected_episodes, header = TRUE, stringsAsFactors = FALSE, na.strings ="")
+  projected_episodes$Start <- ymd(projected_episodes$Start)
+  projected_episodes$End <- ymd(projected_episodes$End)
+  projected_episodes$Birthday <- ymd(projected_episodes$Birthday)
+  projected_episodes <- projected_episodes %>% group_by(Simulation, ID) %>% mutate(Min.Start = min(Start), Max.End = max(End)) %>% ungroup
+  projected_periods <- projected_episodes %>% group_by(Simulation, ID) %>% summarise(Min.Start = min(Start), Max.End = max(End)) %>% ungroup
+  dates <- seq(as.Date("2016-01-01"), as.Date("2021-01-01"), by = "week")
+  colours = tableau_color_pal("Tableau 20")(20)
+  projected <- data.frame(date = c(), joiners.count = c(), cic.count = c(), median.open.duration = c(), median.closed.duration = c())
+  for (date in dates) {
+    date <- as.Date(date)
+    in.cic <- projected_episodes %>%
+      filter(Start <= date & (is.na(End) | End >= date)) %>%
+      group_by(Simulation) %>%
+      summarise(n = n(), median.open.duration = as.integer(median(date - Min.Start)))
+    joiners <- projected_periods %>%
+      filter(Min.Start <= date) %>%
+      group_by(Simulation) %>%
+      summarise(n = n())
+    leavers <- projected_periods %>%
+      filter(Max.End < date & Max.End >= date - months(1)) %>%
+      group_by(Simulation) %>%
+      summarise(median.closed.duration = as.integer(median(date - Min.Start)))
+    projected <- rbind(projected, data.frame(date = c(date), joiners.count = c(median(joiners$n)), cic.count = c(median(in.cic$n)), median.open.duration = c(median(in.cic$median.open.duration)),
+                                             median.closed.duration = median(leavers$median.closed.duration)))
+  }
+  projected$joiners.count <- projected$joiners.count - min(projected$joiners.count)
+  print(ggplot(projected, aes(x = date)) +
+    geom_vline(aes(xintercept = as.Date("2019-03-01"), colour = "#444444"), linetype = 2) +
+    geom_ribbon(alpha = 0.15, aes(fill = colours[1], ymin = joiners.count / 2.0, ymax = (joiners.count + cic.count) / 2.0, x = date)) +
+    geom_line(aes(x = date, y = cic.count, colour = colours[1])) +
+    geom_line(aes(x = date, y = median.open.duration,  colour = colours[2])) +
+    geom_line(aes(x = date, y = median.closed.duration, colour = colours[3])) +
+    geom_ma(aes(x = date, y = median.closed.duration, colour = colours[4]), n = 12) +
+    labs(title = chart_title("Total CiC"), color = "Counted", fill = "Shaded", x = "Date") +
+    scale_color_manual(values = c("#444444","#4E79A7", "#A0CBE8", "#FFBE7D", "#F28E2B"),
+                       labels = c("Projection start", "CiC Count", "Median Open Duration", "Closed Duration (Prior Month Average)", "Closed Duration Moving Average")) +
+    scale_fill_manual(values = c(colours[1], "#CCCCCC"),
+                      labels = c("Total CiC", "Projected Period")) +
+    scale_y_continuous("Counted", sec.axis = sec_axis(~ . * 2, name = "Shaded")) +
+    theme_mastodon)
+
+  # CCC Q1 & R2
+  # NCC H5 & Q1
+  # SCC P2 & R2
+
+  # test.placement <- "Q1"
+  # test.placement <- "R2"
+  # test.placement <- "P2"
+  # test.placement <- "Q2"
+  # test.placement <- "K2"
+
+  projected <- data.frame(date = c(), joiners.count = c(), cic.count = c(), median.open.duration = c(), median.closed.duration = c())
+  for (date in dates) {
+    date <- as.Date(date)
+    in.cic <- projected_episodes %>%
+      filter(Start <= date & (is.na(End) | End >= date) & Placement == test.placement) %>%
+      group_by(Simulation) %>%
+      summarise(n = n(), median.open.duration = as.integer(median(date - Start)))
+    joiners <- projected_episodes %>%
+      filter(Start <= date & Placement == test.placement) %>%
+      group_by(Simulation) %>%
+      summarise(n = n())
+    leavers <- projected_episodes %>%
+      filter(End < date & End >= date - months(1) & Placement == test.placement) %>%
+      group_by(Simulation) %>%
+      summarise(median.closed.duration = as.integer(median(date - Start)))
+    projected <- rbind(projected, data.frame(date = c(date), joiners.count = c(median(joiners$n)), cic.count = c(median(in.cic$n)), median.open.duration = c(median(in.cic$median.open.duration)),
+                                             median.closed.duration = median(leavers$median.closed.duration)))
+  }
+  projected$joiners.count <- projected$joiners.count - min(projected$joiners.count)
+
+  sec_axis_scale <- 0.2
+  print(ggplot(projected, aes(x = date)) +
+          geom_vline(aes(xintercept = as.Date("2019-03-01"), colour = "#444444"), linetype = 2) +
+          geom_ribbon(alpha = 0.15, aes(fill = colours[1], ymin = joiners.count / sec_axis_scale, ymax = (joiners.count + cic.count) / sec_axis_scale, x = date)) +
+          geom_line(aes(x = date, y = cic.count, colour = colours[1])) +
+          geom_line(aes(x = date, y = median.open.duration,  colour = colours[2])) +
+          geom_line(aes(x = date, y = median.closed.duration, colour = colours[3])) +
+          geom_ma(aes(x = date, y = median.closed.duration, colour = colours[4]), n = 12) +
+
+          labs(title = chart_title(test.placement), color = "Counted", fill = "Shaded", x = "Date") +
+          scale_color_manual(values = c("#444444","#4E79A7", "#A0CBE8", "#FFBE7D", "#F28E2B"),
+                             labels = c("Projection start", "CiC Count", "Median Open Duration", "Closed Duration (Prior Month Average)", "Closed Duration Moving Average")) +
+          scale_fill_manual(values = c(colours[1], "#CCCCCC"),
+                            labels = c("Total CiC", "Projected Period")) +
+          scale_y_continuous("Counted", sec.axis = sec_axis(~ . * sec_axis_scale, name = "Shaded")) +
+          theme_mastodon)
+
+  by_age <- data.frame(date = c(), variable = c(), value = c())
+  for (date in dates) {
+    date <- as.Date(date)
+    in.cic <- projected_episodes %>%
+      filter(Start <= date & (is.na(End) | End >= date) & Placement == test.placement) %>%
+      mutate(Age = year_diff(Birthday, date)) %>%
+      group_by(Age, Simulation) %>%
+      summarise(n = n()) %>%
+      summarise(count = median(n))
+
+    joiners <- projected_episodes %>%
+      filter(Start <= date & Placement == test.placement) %>%
+      group_by(Simulation) %>%
+      summarise(n = n()) %>%
+      summarise(count = median(n))
+
+    res <- data.frame(date = c(date), variable = c(in.cic$Age, "Joined"), value = c(in.cic$count, joiners$count))
+
+    by_age <- rbind(by_age, res)
+  }
+  by_age[by_age$variable == "Joined",]$value <- by_age[by_age$variable == "Joined",]$value - min(by_age[by_age$variable == "Joined",]$value) 
+  by_age$variable <- factor(by_age$variable, levels = rev(c("Joined", 0:18)))
+  n_factors <- length(unique(by_age$variable))
+  cols <- colours
+  cols[n_factors] <- NA
+  ggplot(by_age, aes(x = date, y = value, fill = variable)) +
+    geom_vline(aes(xintercept = as.Date("2019-01-01")), colour = "black", linetype = 2) +
+    geom_bar(stat = "identity", position = "stack") +
+    scale_fill_manual(values = cols) +
+    theme_mastodon +
+    labs(fill = "Age", title = chart_title(test.placement), x = "Date", y = "Cumulative Count")
+}
+
+# plot_summary(input_dir, 3, 2, "K2")
 
