@@ -34,7 +34,7 @@ chart_title <- function(title){
 }
 
 chart_path <- function(path) {
-  file.path(output_dir, paste0(Sys.Date(),"-",basename(path)))
+  file.path(output_dir, "charts", paste0(Sys.Date(),"-",basename(path)))
 }
 
 ## If you need to install Open Sans for Mastodon theme. Make sure Open Sans is downloaded and installed.

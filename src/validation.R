@@ -15,11 +15,7 @@ theme_mastodon <- theme(plot.title = element_text(family = "Open Sans SemiBold",
 
 font_import()
 loadfonts()
-dev.off()
 
-
-train_yrs <- 1
-project_yrs <- 2
 output_all_charts <- function(la_label, train_yrs, project_yrs) {
   set.seed(5)
   output_file <- chart_path(paste0(la_label, "-train-", train_yrs, "-yr-project-", project_yrs, "yr.pdf"))
@@ -320,9 +316,4 @@ output_all_charts <- function(la_label, train_yrs, project_yrs) {
   embed_fonts(file = output_file,outfile = output_file)
 }
 
-output_all_charts(1)
-output_all_charts(2)
-output_all_charts(3)
-output_all_charts(4)
-output_all_charts(5)
 
