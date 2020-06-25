@@ -19,6 +19,19 @@ remove.stale.episodes <- function(episodes) {
   episodes %>% filter(report_year == max_report_year | (report_year < max_report_year & !is.na(ceased)))
 }
 
+merge.phase.episodes <- function(episodes) {
+  episodes <- episodes %>% arrange(phase_id)
+  episodes %>% group_by(phase_id) %>%
+    summarise(ID = ID[1],
+              report_date = min(report_date),
+              ceased = max(ceased),
+              placement = placement[1],
+              legal_status = legal_status[1],
+              care_status = care_status[1],
+              DOB = DOB[1],
+              period_id = period_id[1])
+}
+
 remap.placements <- function(episodes) {
   episodes %>% mutate(placement = ifelse(placement %in% c("U1", "U2", "U3"), "Q1", ifelse(placement %in% c("U4", "U5", "U6"), "Q2", placement)))
 }
@@ -57,7 +70,8 @@ episodes <- read.csv(raw_episodes, header = TRUE, stringsAsFactors = FALSE, na.s
   remap.placements %>%
   assoc.period.id %>%
   assoc.episode.number %>%
-  assoc.phase.id
+  assoc.phase.id %>%
+  merge.phase.episodes
 
 respite.children <- episodes %>% group_by(period_id) %>% filter(length(unique(legal_status %in% c("V3", "V4"))) > 1) %>% ungroup %>% dplyr::select(ID) %>% unique %>% as.data.frame
 respite.children$ID
