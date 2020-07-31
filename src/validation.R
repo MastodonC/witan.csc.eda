@@ -1,16 +1,22 @@
 library(dplyr)
 library(lubridate)
 library(tidyquant)
+install.packages("extrafont")
+library(extrafont)
+library(ggplot2)
 
-theme_mastodon <- theme(plot.title = element_text(family = "Open Sans SemiBold", hjust = 0.5, size = 20,
+
+theme_mastodon <- theme(plot.title = element_text(# family = "Open Sans SemiBold",
+                                                  hjust = 0.5, size = 20,
                                                   margin = margin(0,0,15,0)),
-                        axis.title = element_text(family = "Open Sans SemiBold", hjust = 0.5, size = 16),
-                        axis.text = element_text(family = "Open Sans", hjust = 0.5, size = 10),
+                        axis.title = element_text(# family = "Open Sans SemiBold",
+                                                  hjust = 0.5, size = 16),
+                        axis.text = element_text(# family = "Open Sans",
+                                                 hjust = 0.5, size = 10),
                         axis.text.x = element_text(angle = -45),
                         axis.title.x = element_text(margin = margin(15,0,0,0)),
                         axis.title.y = element_text(margin = margin(0,10,0,0)),
                         plot.margin = margin(10,20,10,10),
-                        panel.background = element_blank(),
                         panel.grid = element_line(color = "#eeeeee"))
 
 
@@ -24,7 +30,8 @@ output_all_charts <- function(la_label, train_yrs, project_yrs) {
   print(output_dir)
   if (!dir.exists(dirname(output_file)))
     dir.create(dirname(output_file), recursive = TRUE)
-  pdf(output_file, fonts = c("Open Sans", "Open Sans SemiBold"), paper = "a4r")
+  pdf(output_file, # fonts = c("Open Sans", "Open Sans SemiBold"),
+      paper = "a4r")
   projection_name <- paste0("episodes-rewind-1yr-train-", train_yrs, "yr-project-", project_yrs, "yr-runs-100-seed-42")
   episodes <- read.csv(file.path(input_dir, "episodes.scrubbed.csv"), header = TRUE, stringsAsFactors = FALSE, na.strings ="NA")
   episodes$report_date <- ymd(episodes$report_date)
@@ -36,7 +43,7 @@ output_all_charts <- function(la_label, train_yrs, project_yrs) {
   episodes <- episodes %>% group_by(phase_id) %>% mutate(admission_age = year_diff(min(birthday), min(report_date))) %>% ungroup
   episodes$placement_category <- substr(episodes$placement, 1, 1)
   
-  projected_episodes <- file.path(input_dir, paste0(projection_name, "-episodes-filter.csv"))
+  projected_episodes <- file.path(input_dir, paste0(projection_name, "-placements-model-2.2-nojoiners.csv"))
   projected_episodes <- read.csv(projected_episodes, header = TRUE, stringsAsFactors = FALSE, na.strings ="")
   projected_episodes$Start <- ymd(projected_episodes$Start)
   projected_episodes$End <- ymd(projected_episodes$End)
@@ -206,7 +213,7 @@ output_all_charts <- function(la_label, train_yrs, project_yrs) {
               median = quantile(n, probs = 0.5),
               q3 = quantile(n, probs = 0.75),
               upper.ci = quantile(n, probs = 0.975)) %>%
-    filter(date > as.Date("2018-12-01"))
+    filter(date > as.Date("2016-12-01"))
   
   leave_projected_ci <- join_leave_projected %>%
     mutate(Leave = floor_date(Leave, unit = "month")) %>%
@@ -218,7 +225,7 @@ output_all_charts <- function(la_label, train_yrs, project_yrs) {
               median = quantile(n, probs = 0.5),
               q3 = quantile(n, probs = 0.75),
               upper.ci = quantile(n, probs = 0.975)) %>%
-    filter(date > as.Date("2018-12-01"))
+    filter(date > as.Date("2016-12-01"))
   
   join_actuals <- join_leave_actual_summary %>%
     mutate(Join = floor_date(Join, unit = "month")) %>%
@@ -242,7 +249,7 @@ output_all_charts <- function(la_label, train_yrs, project_yrs) {
     theme_mastodon +
     scale_color_manual(values = colours) +
     labs(title = chart_title("Joiners per month"), x = "Date", y = "CiC") +
-    coord_cartesian(xlim = c(as.Date("2018-01-01"), as.Date("2020-01-01"))))
+    coord_cartesian(xlim = c(as.Date("2016-01-01"), as.Date("2020-01-01"))))
   
   print(ggplot() +
     geom_line(data =  leave_actuals, aes(x = date, y = value)) +
@@ -252,7 +259,7 @@ output_all_charts <- function(la_label, train_yrs, project_yrs) {
     theme_mastodon +
     scale_color_manual(values = colours) +
     labs(title = chart_title("Leavers per month"), x = "Date", y = "CiC") +
-    coord_cartesian(xlim = c(as.Date("2018-01-01"), as.Date("2020-01-01"))))
+    coord_cartesian(xlim = c(as.Date("2016-01-01"), as.Date("2020-01-01"))))
   
   for (test.age in 0:17){
     join_projected_ci <- join_leave_projected %>%
@@ -301,7 +308,7 @@ output_all_charts <- function(la_label, train_yrs, project_yrs) {
       theme_mastodon +
       scale_color_manual(values = colours) +
       labs(title = chart_title(paste0("Age ", test.age, " joiners per month")), x = "Date", y = "CiC") +
-      coord_cartesian(xlim = c(as.Date("2018-01-01"), as.Date("2020-01-01"))))
+      coord_cartesian(xlim = c(as.Date("2016-01-01"), as.Date("2020-01-01"))))
     
     print(ggplot() +
       geom_line(data = leave_actuals, aes(x = date, y = value)) +
@@ -311,23 +318,23 @@ output_all_charts <- function(la_label, train_yrs, project_yrs) {
       theme_mastodon +
       scale_color_manual(values = colours) +
       labs(title = chart_title(paste0("Age ", test.age, " leavers per month")), x = "Date", y = "CiC") +
-      coord_cartesian(xlim = c(as.Date("2018-01-01"), as.Date("2020-01-01"))))
+      coord_cartesian(xlim = c(as.Date("2016-01-01"), as.Date("2020-01-01"))))
   }
   dev.off()
   embed_fonts(file = output_file,outfile = output_file)
 }
 
 
-plot_summary <- function(input_dir, train_yrs, project_yrs, test.placement) {
+plot_summary <- function(input_dir, train_yrs, project_from, project_yrs, test.placement) {
   projection_name <- paste0("episodes-rewind-1yr-train-", train_yrs, "yr-project-", project_yrs, "yr-runs-100-seed-42")
-  projected_episodes <- file.path(input_dir, paste0(projection_name, "-episodes-filter.csv"))
+  projected_episodes <- file.path(input_dir, paste0(projection_name, "-v4-ceased-model.csv"))
   projected_episodes <- read.csv(projected_episodes, header = TRUE, stringsAsFactors = FALSE, na.strings ="")
   projected_episodes$Start <- ymd(projected_episodes$Start)
   projected_episodes$End <- ymd(projected_episodes$End)
   projected_episodes$Birthday <- ymd(projected_episodes$Birthday)
   projected_episodes <- projected_episodes %>% group_by(Simulation, ID) %>% mutate(Min.Start = min(Start), Max.End = max(End)) %>% ungroup
   projected_periods <- projected_episodes %>% group_by(Simulation, ID) %>% summarise(Min.Start = min(Start), Max.End = max(End)) %>% ungroup
-  dates <- seq(as.Date("2016-01-01"), as.Date("2021-01-01"), by = "week")
+  dates <- seq(as.Date("2016-01-01"), project_from + years(project_yrs), by = "week")
   colours = tableau_color_pal("Tableau 20")(20)
   projected <- data.frame(date = c(), joiners.count = c(), cic.count = c(), median.open.duration = c(), median.closed.duration = c())
   for (date in dates) {
@@ -349,7 +356,7 @@ plot_summary <- function(input_dir, train_yrs, project_yrs, test.placement) {
   }
   projected$joiners.count <- projected$joiners.count - min(projected$joiners.count)
   print(ggplot(projected, aes(x = date)) +
-    geom_vline(aes(xintercept = as.Date("2019-03-01"), colour = "#444444"), linetype = 2) +
+    geom_vline(aes(xintercept = project_from, colour = "#444444"), linetype = 2) +
     geom_ribbon(alpha = 0.15, aes(fill = colours[1], ymin = joiners.count / 2.0, ymax = (joiners.count + cic.count) / 2.0, x = date)) +
     geom_line(aes(x = date, y = cic.count, colour = colours[1])) +
     geom_line(aes(x = date, y = median.open.duration,  colour = colours[2])) +
@@ -395,7 +402,7 @@ plot_summary <- function(input_dir, train_yrs, project_yrs, test.placement) {
 
   sec_axis_scale <- 0.2
   print(ggplot(projected, aes(x = date)) +
-          geom_vline(aes(xintercept = as.Date("2019-03-01"), colour = "#444444"), linetype = 2) +
+          geom_vline(aes(xintercept = project_from, colour = "#444444"), linetype = 2) +
           geom_ribbon(alpha = 0.15, aes(fill = colours[1], ymin = joiners.count / sec_axis_scale, ymax = (joiners.count + cic.count) / sec_axis_scale, x = date)) +
           geom_line(aes(x = date, y = cic.count, colour = colours[1])) +
           geom_line(aes(x = date, y = median.open.duration,  colour = colours[2])) +
@@ -436,12 +443,53 @@ plot_summary <- function(input_dir, train_yrs, project_yrs, test.placement) {
   cols <- colours
   cols[n_factors] <- NA
   ggplot(by_age, aes(x = date, y = value, fill = variable)) +
-    geom_vline(aes(xintercept = as.Date("2019-01-01")), colour = "black", linetype = 2) +
+    geom_vline(aes(xintercept = project_from), colour = "black", linetype = 2) +
     geom_bar(stat = "identity", position = "stack") +
     scale_fill_manual(values = cols) +
     theme_mastodon +
     labs(fill = "Age", title = chart_title(test.placement), x = "Date", y = "Cumulative Count")
 }
 
-# plot_summary(input_dir, 3, 2, "K2")
+day_diff <- function(start, stop) {
+  as.numeric(difftime(stop, start, units = "days"))
+}
+
+plot_distribution_lifetimes <- function(episodes){
+  grouped <- episodes %>% group_by(Simulation, ID, Admission.Age) %>% summarise(Duration = day_diff(min(Start), max(Start)))
+  ggplot(grouped, aes(Duration)) + geom_histogram() + facet_wrap(vars(Admission.Age))
+}
+
+plot_age_zero_distributions <- function(simulated_episodes){
+  episodes <- read.csv(file.path(input_dir, "episodes.scrubbed.csv"), header = TRUE, stringsAsFactors = FALSE, na.strings ="")
+  episodes$report_date <- ymd(episodes$report_date)
+  episodes$ceased <- ymd(episodes$ceased)
+  end_date <- max(episodes$report_date)
+  episodes$DOB <- ymd(paste0(episodes$DOB, "-01"))
+  birthdays <- episodes %>%
+    group_by(ID) %>%
+    summarise(birthday = imputed_birthday(DOB[1], min(report_date), coalesce(max(ceased), end_date)),
+              .groups = "keep")
+  episodes <- episodes %>% inner_join(birthdays)
+  episodes <- episodes %>%
+    group_by(ID) %>% mutate(duration = day_diff(min(report_date), max(ceased)),
+                            admission_age = year_diff(min(birthday), min(report_date))) %>%
+    filter(!is.na(duration))
+  episodes %>% filter(admission_age == 0) %>%
+    filter(duration < 2000) %>%
+    ggplot(aes(duration)) + geom_density()
+  grouped <- simulated_episodes %>% filter(Admission.Age == 0) %>%
+    group_by(Simulation, ID) %>% summarise(Duration = day_diff(min(Start), max(End)))
+  ggplot(grouped %>% filter(Duration < 2000), aes(Duration)) + geom_density()
+}
+train_yrs <- 3
+project_yrs <- 5
+projection_name <- paste0("episodes-rewind-1yr-train-", train_yrs, "yr-project-", project_yrs, "yr-runs-100-seed-42")
+projected_episodes <- file.path(input_dir, paste0(projection_name, "-placements-model-2.2.csv"))
+plot_distribution_lifetimes(read.csv(projected_episodes, na.strings = ""))
+
+simulated_episodes <- read.csv(projected_episodes, na.strings = "")
+
+plot_summary(input_dir, 3, as.Date("2019-01-01"), 5, "R2")
+
+output_all_charts(la_label, 3, 5)
 
