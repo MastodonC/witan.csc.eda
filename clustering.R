@@ -2,11 +2,16 @@ library(dplyr)
 library(lubridate)
 library(ggplot2)
 library(fitdistrplus)
-library(reshape)
+library(reshape2)
 
 library(cluster)
 library(NbClust)
 library(factoextra)
+library(stringi)
+library(tidyverse)
+
+library(ggthemes)
+
 
 day_diff <- function(start, stop) {
   as.numeric(difftime(stop, start, units = "days"))
@@ -36,6 +41,13 @@ add.derived.cols <- function(episodes) {
     as.data.frame
 }
 
+assoc.period.id <- function(episodes) {
+  episodes <- episodes %>% arrange(ID, report_date)
+  new_periods <- coalesce(episodes$ID == lag(episodes$ID) & episodes$report_date > lag(episodes$ceased), FALSE)
+  episodes$period_id <- paste0(episodes$ID, "-", ave(ifelse(new_periods, 1.0, 0.0), episodes$ID, FUN = cumsum) + 1)
+  episodes
+}
+
 assoc.phase.id <- function(episodes) {
   episodes <- episodes %>% arrange(period_id, report_date)
   new_phases <- coalesce(episodes$period_id == lag(episodes$period_id) & episodes$placement != lag(episodes$placement), FALSE)
@@ -46,14 +58,17 @@ assoc.phase.id <- function(episodes) {
 
 scc <- read.csv("../witan.cic/data/scc/2020-07-16/episodes.scrubbed.csv", na.strings = "") %>%
   add.derived.cols %>%
+  assoc.period.id %>%
   assoc.phase.id
 
 ncc <- read.csv("../witan.cic/data/ncc/2020-06-09/episodes.scrubbed.csv", na.strings = "") %>%
   add.derived.cols %>%
+  assoc.period.id %>%
   assoc.phase.id
 
 ccc <- read.csv("../witan.cic/data/ccc/2020-06-09/episodes.scrubbed.csv", na.strings = "NA") %>%
   add.derived.cols %>%
+  assoc.period.id %>%
   assoc.phase.id
 
 
@@ -252,8 +267,9 @@ library(reshape2)
 closed_episodes <- scc %>% filter(!is.na(end))
 learner.features.closed <- function(closed_episodes) {
   # We want to create a feature vector for each month of a closed case
-  # The maximum feature vectors for one child is 12 * 18 = 216 months
+  # We express the offset in days using an interval of 28
   # We start 1 month after their first report date, and keep going until their last cease date
+  # We also add a feature at the beginning of each placement
   # We include their age in days
   # Their time in care in days
   # Their total time in each placement in days
@@ -261,38 +277,41 @@ learner.features.closed <- function(closed_episodes) {
   
   feature_episodes <- closed_episodes %>%
     mutate(join = TRUE) %>%
-    inner_join(data.frame(month_offset = seq(1,216),
+    inner_join(data.frame(day_offset = seq(7, 18 * 365, by = 28),
                           join = TRUE)) %>%
-    mutate(feature_date = beginning + months(month_offset)) %>%
+    mutate(feature_date = beginning + days(day_offset)) %>%
     filter(report_date < feature_date & feature_date < end) %>%
     mutate(episode_days = ifelse(feature_date >= report_date & feature_date <= ceased,
                                  day_diff(report_date, feature_date),
                                  day_diff(report_date, ceased)))
   
   features_1 <- feature_episodes %>%
-    group_by(ID, month_offset) %>%
+    group_by(period_id, day_offset) %>%
+    arrange(report_date) %>%
     summarise(age = day_diff(birthday[1], feature_date[1]),
-              care_days = day_diff(beginning[1], feature_date[1])) %>%
-    reshape2::melt(id.vars = c("ID", "month_offset"))
+              entry = day_diff(birthday[1], beginning[1]),
+              care_days = day_diff(beginning[1], feature_date[1]),
+              current = last(placement)) %>%
+    reshape2::melt(id.vars = c("period_id", "day_offset"))
   
   features_2 <- feature_episodes %>%
-    group_by(ID, month_offset, placement) %>%
+    group_by(period_id, day_offset, placement) %>%
     summarise(value = sum(episode_days)) %>%
     dplyr::rename(variable = placement)
     
-  # features_3 <- feature_episodes %>%
-  #   mutate(placement_seq = paste0(placement, phase_number)) %>%
-  #   group_by(ID, month_offset, placement_seq) %>%
-  #   summarise(value = sum(episode_days)) %>%
-  #   dplyr::rename(variable = placement_seq)
+  features_3 <- feature_episodes %>%
+    mutate(placement_seq = paste0(placement, phase_number)) %>%
+    group_by(period_id, day_offset, placement_seq) %>%
+    summarise(value = sum(episode_days)) %>%
+    dplyr::rename(variable = placement_seq)
 
   features <- rbind(features_1,
-        features_2
-        # features_3
+       features_2,
+        features_3
         ) %>%
-    dcast(ID + month_offset ~ variable, value.var = 'value', fill = 0)
+    dcast(period_id + day_offset ~ variable, value.var = 'value', fill = 0)
   
-  ids <- (features[,1:2] %>% mutate(name = paste0(ID, '-', month_offset)))$name
+  ids <- (features[,1:2] %>% mutate(name = paste0(period_id, ':', day_offset)))$name
   features <- features[c(-2,-1)]
   rownames(features) <- ids
   features
@@ -305,27 +324,29 @@ learner.features.open <- function(open_episodes) {
     mutate(episode_days = day_diff(report_date, coalesce(ceased, feature_date)))
   
   features_1 <- feature_episodes %>%
-    group_by(ID) %>%
+    group_by(period_id) %>%
     summarise(age = day_diff(birthday[1], feature_date),
-              care_days = day_diff(beginning[1], feature_date)) %>%
-    melt(id.vars = c("ID"))
+              entry = day_diff(birthday[1], beginning[1]),
+              care_days = day_diff(beginning[1], feature_date),
+              current = last(placement)) %>%
+    melt(id.vars = c("period_id"))
   
   features_2 <- feature_episodes %>%
-    group_by(ID, placement) %>%
+    group_by(period_id, placement) %>%
     summarise(value = sum(episode_days)) %>%
     dplyr::rename(variable = placement)
   
-  # features_3 <- feature_episodes %>%
-  #   mutate(placement_seq = paste0(placement, phase_number)) %>%
-  #   group_by(ID, placement_seq) %>%
-  #   summarise(value = sum(episode_days)) %>%
-  #   dplyr::rename(variable = placement_seq)
+  features_3 <- feature_episodes %>%
+    mutate(placement_seq = paste0(placement, phase_number)) %>%
+    group_by(period_id, placement_seq) %>%
+    summarise(value = sum(episode_days)) %>%
+    dplyr::rename(variable = placement_seq)
   
   features <- rbind(features_1,
-                    features_2
-                    # features_3
+                    features_2,
+                    features_3
                     ) %>%
-    dcast(ID ~ variable, value.var = 'value', fill = 0)
+    dcast(period_id ~ variable, value.var = 'value', fill = 0)
   
   ids <- features[[1]]
   features <- features[c(-1)]
@@ -342,18 +363,73 @@ add.zero.features <- function(target, reference) {
   target
 }
 
+is.nan.data.frame <- function(x)do.call(cbind, lapply(x, is.nan))
+
+normalise_cols <- function(df, denominator) {
+  res <- as.data.frame(sweep(df, 2, sapply(denominator, max, na.rm = TRUE), FUN = "/"))
+  res[is.nan(res)] <- 0
+  res
+}
+
 scc.closed.features <- learner.features.closed(scc %>% filter(!is.na(end)))
 scc.open.features <- learner.features.open(scc %>% filter(is.na(end)))
 scc.closed.features <- add.zero.features(scc.closed.features, scc.open.features)
 scc.open.features <- add.zero.features(scc.open.features, scc.closed.features)
+# scc.closed.features <- normalise_cols(scc.closed.features, rbind(scc.closed.features, scc.open.features))
+# scc.open.features <- normalise_cols(scc.open.features, rbind(scc.closed.features, scc.open.features))
 
-M <- as.matrix(scc.closed.features)
-X <- as.matrix(scc.open.features[1:10,])
+M <- scc.closed.features
+X <- scc.open.features[1:nrow(scc.open.features),]
 res <- apply(X, 1, function(v) {
-  sim <- ( M %*% v ) / sqrt( sum(v*v) * rowSums(M*M) )
-  sub("\\-.*", "", names(sim[which.max(sim),]))
-  names(sim[which.max(sim),])
+  placement <- v[["current"]]
+  print(placement)
+  vxx <- as.numeric(v[!v == placement])
+  vx <- vxx
+  Mxx <- M[M$current == placement, !(names(M) == "current")]
+  Mx <- Mxx
+  Mx[] <- lapply(Mxx, as.numeric)
+  Mx <- as.matrix(Mx)
+  # sim <- ( Mx %*% vx ) / sqrt( sum(vx*vx) * rowSums(Mx*Mx) )
+  # names(sim[which.max(sim),])
+  d <- rowSums((Mx - vx) ^ 2)
+  names(d[which.min(d)])
 })
 
-scc.open.features[rownames(scc.open.features) == 1124,]
-scc.closed.features[rownames(scc.closed.features) == "1352-23" ,]
+resmat <- as.matrix(res)
+resmat
+names(res)
+clusters <- data.frame(closed = resmat, open = rownames(resmat)) %>%
+  mutate(offset =  sub(".*:", "", closed),
+         closed = sub(":.*", "", closed))
+
+write.csv(clusters, "knn-closed-cases.csv", row.names = FALSE)
+
+clusters %>% filter(open =="3485-1")
+
+clusters_long <- clusters %>%
+  sample_n(25) %>%
+  mutate(cluster = row_number()) %>%
+  melt(id.vars = c("cluster", "offset")) %>%
+  dplyr::rename(case_type = variable, period_id = value) %>%
+  mutate(period_id = as.character(period_id))
+
+day_offsets <- seq(0, 365 * 18, by = 7)
+max_date <- max(scc$report_date)
+nb.cols <- 21
+
+all.placements <- c("A3", "A4", "A5", "A6", "H5", "K1", "K2", "M2", "M3", "P1", "P2",
+                    "Q1","Q2", "R1", "R2", "R3", "R5", "S1", "T0", "T4", "Z1", "OUT")
+my.colours <- colorRampPalette(tableau_color_pal("Tableau 20")(11))(nb.cols)
+my.colours <- c(my.colours, "#888888")
+names(my.colours) <- all.placements
+scc %>%
+  inner_join(clusters_long) %>%
+  mutate(join = TRUE) %>%
+  inner_join(data.frame(day_offset = day_offsets, join = TRUE)) %>%
+  filter(birthday + days(day_offset) >= report_date & (birthday + days(day_offset) <= coalesce(ceased, max_date))) %>%
+  ggplot(aes(day_offset, ID, fill = placement)) + geom_tile() +
+  facet_grid(cols = vars(case_type), rows = vars(cluster), scales = "free_y") +
+  scale_fill_manual(values = my.colours) +
+  geom_vline(aes(xintercept = day_diff(birthday, beginning + as.integer(offset))), linetype = 2) +
+  labs(x = "Day offset", y = "ID", title = "Random sample of 1-nearest neighbours")
+
