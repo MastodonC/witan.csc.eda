@@ -30,7 +30,7 @@ add.derived.cols <- function(episodes) {
     mutate(ID = as.character(ID)) %>%
     mutate(report_date = ymd(report_date), ceased = ymd(ceased)) %>%
     mutate(birthday = as.Date(paste0(DOB, "-01"))) %>%
-    group_by(ID) %>%
+    group_by(period_id) %>%
     mutate(admission_age = year_diff(birthday, min(report_date)),
            beginning = min(report_date),
            end = max(ceased)) %>%
@@ -276,6 +276,7 @@ learner.features.closed <- function(closed_episodes) {
   # Their total time in each ordered placement in sequence in days
   
   feature_episodes <- closed_episodes %>%
+    group_by(period_id) %>% mutate(period_duration = day_diff(min(report_date), coalesce(max(ceased), max_date))) %>% ungroup %>%
     mutate(join = TRUE) %>%
     inner_join(data.frame(day_offset = seq(7, 18 * 365, by = 28),
                           join = TRUE)) %>%
@@ -291,7 +292,8 @@ learner.features.closed <- function(closed_episodes) {
     summarise(age = day_diff(birthday[1], feature_date[1]),
               entry = day_diff(birthday[1], beginning[1]),
               care_days = day_diff(beginning[1], feature_date[1]),
-              current = last(placement)) %>%
+              current = last(placement),
+              period_duration = last(period_duration)) %>%
     reshape2::melt(id.vars = c("period_id", "day_offset"))
   
   features_2 <- feature_episodes %>%
@@ -371,40 +373,79 @@ normalise_cols <- function(df, denominator) {
   res
 }
 
-scc.closed.features <- learner.features.closed(scc %>% filter(!is.na(end)))
-scc.open.features <- learner.features.open(scc %>% filter(is.na(end)))
-scc.closed.features <- add.zero.features(scc.closed.features, scc.open.features)
-scc.open.features <- add.zero.features(scc.open.features, scc.closed.features)
-# scc.closed.features <- normalise_cols(scc.closed.features, rbind(scc.closed.features, scc.open.features))
-# scc.open.features <- normalise_cols(scc.open.features, rbind(scc.closed.features, scc.open.features))
+cluster_cases <- function(scc) {
+  scc.closed.features <- learner.features.closed(scc %>% filter(!is.na(end)))
+  scc.open.features <- learner.features.open(scc %>% filter(is.na(end)))
+  scc.closed.features <- add.zero.features(scc.closed.features, scc.open.features)
+  scc.open.features <- add.zero.features(scc.open.features, scc.closed.features)
+  # scc.closed.features <- normalise_cols(scc.closed.features, rbind(scc.closed.features, scc.open.features))
+  # scc.open.features <- normalise_cols(scc.open.features, rbind(scc.closed.features, scc.open.features))
+  
+  stddev <- apply(rbind(scc.closed.features, scc.open.features), 2, function(x) sd(as.numeric(x)))
+  means <- apply(rbind(scc.closed.features, scc.open.features), 2, function(x) mean(as.numeric(x)))
+  
+  M <- scc.closed.features[,c("current", "period_duration", "care_days", "entry")]
+  X <- scc.open.features[1:nrow(scc.open.features),c("current", "care_days", "entry")]
+  X$entry <- (as.numeric(X$entry) - means["entry"]) / stddev["entry"]
+  X$care_days <- (as.numeric(X$care_days) - means["care_days"]) / stddev["care_days"]
+  M$entry <- (as.numeric(M$entry) - means["entry"]) / stddev["entry"]
+  M$care_days <- (as.numeric(M$care_days) - means["care_days"]) / stddev["care_days"]
+  
+  res <- apply(X, 1, function(v) {
+    placement <- v[["current"]]
+    print(v)
+    vxx <- as.numeric(v[!v == placement])
+    vx <- vxx
+    Mxx <- M[M$current == placement & M$period_duration > v["care_days"], !(names(M) %in% c("current", "period_duration"))]
+    Mx <- Mxx
+    Mx[] <- lapply(Mxx, as.numeric)
+    Mx <- as.matrix(Mx)
+    # sim <- ( Mx %*% vx ) / sqrt( sum(vx*vx) * rowSums(Mx*Mx) )
+    # names(sim[which.max(sim),])
+    d <- rowSums((Mx - vx) ^ 2)
+    names(d[which.min(d)])
+  })
+  resmat <- as.matrix(res)
+  clusters <- data.frame(closed = resmat, open = rownames(resmat)) %>%
+    mutate(offset =  as.numeric(sub(".*:", "", closed)),
+           closed = sub(":.*", "", closed))
+}
 
-M <- scc.closed.features
-X <- scc.open.features[1:nrow(scc.open.features),]
-res <- apply(X, 1, function(v) {
-  placement <- v[["current"]]
-  print(placement)
-  vxx <- as.numeric(v[!v == placement])
-  vx <- vxx
-  Mxx <- M[M$current == placement, !(names(M) == "current")]
-  Mx <- Mxx
-  Mx[] <- lapply(Mxx, as.numeric)
-  Mx <- as.matrix(Mx)
-  # sim <- ( Mx %*% vx ) / sqrt( sum(vx*vx) * rowSums(Mx*Mx) )
-  # names(sim[which.max(sim),])
-  d <- rowSums((Mx - vx) ^ 2)
-  names(d[which.min(d)])
-})
+scc_clusters <- cluster_cases(scc)
+write.csv(scc_clusters, "scc-knn-closed-cases.csv", row.names = FALSE)
 
-resmat <- as.matrix(res)
-resmat
-names(res)
-clusters <- data.frame(closed = resmat, open = rownames(resmat)) %>%
-  mutate(offset =  sub(".*:", "", closed),
-         closed = sub(":.*", "", closed))
+ncc_clusters <- cluster_cases(ncc)
+write.csv(ncc_clusters, "ncc-knn-closed-cases.csv", row.names = FALSE)
 
-write.csv(clusters, "knn-closed-cases.csv", row.names = FALSE)
+ccc_clusters <- cluster_cases(ccc)
+write.csv(ccc_clusters, "ccc-knn-closed-cases.csv", row.names = FALSE)
 
-clusters %>% filter(open =="3485-1")
+max_date <- max(ccc$report_date)
+
+plot_distribution <- function(df, clusters) {
+  period_durations <- df %>%
+    group_by(period_id, event) %>%
+    dplyr::summarise(period_duration = day_diff(min(report_date), coalesce(max(ceased), max_date))) %>%
+    as.data.frame
+  
+  
+  cluster_durations <- clusters %>%
+    inner_join(period_durations, by = c("closed" = "period_id")) %>%
+    rename(matched_closed_duration = period_duration) %>%
+    inner_join(period_durations, by = c("open" = "period_id")) %>%
+    rename(open_duration = period_duration) %>%
+    mutate(inferred_eventual_duration = open_duration + (matched_closed_duration - offset))
+  
+  melt(cluster_durations[,c("matched_closed_duration", "inferred_eventual_duration")]) %>%
+    rbind(period_durations %>% filter(event == 1) %>% mutate(variable = "closed_case_distribution") %>% dplyr::select(variable, period_duration) %>% rename(value = period_duration)) %>%
+    ggplot(aes(value, fill = variable)) +
+    geom_histogram(position = "dodge", alpha = 0.2) +
+    labs(title = "KNN(1) on age, duration in care and current placement only")
+}
+
+plot_distribution(scc, scc_clusters) + labs(title = "SCC distribution")
+plot_distribution(ncc, ncc_clusters) + labs(title = "NCC distribution")
+plot_distribution(ccc, ccc_clusters) + labs(title = "CCC distribution")
 
 clusters_long <- clusters %>%
   sample_n(25) %>%
@@ -414,7 +455,7 @@ clusters_long <- clusters %>%
   mutate(period_id = as.character(period_id))
 
 day_offsets <- seq(0, 365 * 18, by = 7)
-max_date <- max(scc$report_date)
+
 nb.cols <- 21
 
 all.placements <- c("A3", "A4", "A5", "A6", "H5", "K1", "K2", "M2", "M3", "P1", "P2",
@@ -422,6 +463,7 @@ all.placements <- c("A3", "A4", "A5", "A6", "H5", "K1", "K2", "M2", "M3", "P1", 
 my.colours <- colorRampPalette(tableau_color_pal("Tableau 20")(11))(nb.cols)
 my.colours <- c(my.colours, "#888888")
 names(my.colours) <- all.placements
+
 scc %>%
   inner_join(clusters_long) %>%
   mutate(join = TRUE) %>%
@@ -433,3 +475,21 @@ scc %>%
   geom_vline(aes(xintercept = day_diff(birthday, beginning + as.integer(offset))), linetype = 2) +
   labs(x = "Day offset", y = "ID", title = "Random sample of 1-nearest neighbours")
 
+
+# Investigate open cases
+
+Can't close open case 1008-1, ignoring
+Can't close open case 2570-1, ignoring
+Can't close open case 3370-1, ignoring
+Can't close open case 1011-1, ignoring
+Can't close open case 3371-1, ignoring
+Can't close open case 2574-1, ignoring
+Can't close open case 2572-1, ignoring
+Can't close open case 3125-1, ignoring
+
+
+scc %>% filter(period_id == "1008-1")
+
+clusters %>% filter(open == "1008-1")
+
+scc %>% filter(period_id == "437-1")

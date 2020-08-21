@@ -13,7 +13,6 @@ library(zoo)
 library(networkD3)
 library(fitdistrplus)
 library(rbokeh)
-library(htmlwidgets)
 library(htmltools)
 
 ## Update with name of local authority
@@ -148,7 +147,7 @@ date_after <- function(date) {
   date + runif(length(date), min = 0, max = interval(date, next_year) / days(1))
 }
 
-episodes <- read.csv(scrubbed_episodes, header = TRUE, stringsAsFactors = FALSE, na.strings ="NA")
+episodes <- read.csv(scrubbed_episodes, header = TRUE, stringsAsFactors = FALSE, na.strings ="")
 
 ## If date format is M/YYYY
 # episodes <- episodes %>% mutate(DOB = paste0(substr(DOB, str_length(DOB) - 3, str_length(DOB)), "-", sprintf("%02s", paste0(substr(DOB, 0, str_length(DOB) - 5)))))
@@ -168,18 +167,22 @@ end_date <- max(max(episodes$report_date), max(episodes$ceased, na.rm = TRUE))
 
 birthdays <- episodes %>%
   group_by(ID) %>%
-  summarise(birthday = imputed_birthday(DOB[1], min(report_date), coalesce(max(ceased), end_date)))
+  summarise(birthday = imputed_birthday(DOB[1], min(report_date), coalesce(max(ceased), end_date)),
+            .groups = "keep")
+?summarise
 
 episodes <- episodes %>% inner_join(birthdays)
 
 over_18 <- episodes %>% group_by(ID) %>%
-  summarise(age = ifelse(is.na(max(ceased)), year_diff(min(birthday), end_date), year_diff(min(birthday), max(ceased)))) %>%
+  summarise(age = ifelse(is.na(max(ceased)), year_diff(min(birthday), end_date), year_diff(min(birthday), max(ceased))),
+            .groups = "keep") %>%
   filter(age > 17)
 
 write.csv(over_18, file.path(output_dir, "over_18.csv"))
 
 under_0 <- episodes %>% group_by(ID) %>%
-  summarise(age = ifelse(is.na(max(ceased)), year_diff(min(birthday), end_date), year_diff(min(birthday), max(ceased)))) %>%
+  summarise(age = ifelse(is.na(max(ceased)), year_diff(min(birthday), end_date), year_diff(min(birthday), max(ceased))),
+            .groups = "keep") %>%
   filter(age < 0)
 write.csv(under_0, file.path(output_dir, "under_0.csv"))
 
@@ -190,7 +193,8 @@ birthday_joiner_month_diffs <- episodes %>%
   group_by(ID) %>%
   summarise(join_date = month_start(min(report_date)),
             birth_date = month_start(min(Date.of.birth)),
-            join_age = year_diff(min(Date.of.birth), min(report_date))) %>%
+            join_age = year_diff(min(Date.of.birth), min(report_date)),
+            .groups = "keep") %>%
   group_by(ID, join_date, birth_date, join_age) %>%
   mutate(birthday_before_joining = birthday_before_date(birth_date, join_date)) %>%
   mutate(months_after_birthday = interval(birthday_before_joining, join_date) %/% months(1),
@@ -217,6 +221,47 @@ periods$admission_age = factor(periods$admission_age)
 
 fit <- survfit(Surv(duration, event) ~ admission_age, data = periods %>% filter(as.integer(as.character(admission_age)) < 18))
 quantiles <- quantile(fit, probs = seq(0,1,length.out = 101))
+
+install.packages("flexsurv")
+library(flexsurv)
+fit2 <- coxph(Surv(duration, event) ~ admission_age, data = periods %>% filter(as.integer(as.character(admission_age)) < 18))
+ggplot(basehaz(fit2), aes(time, hazard)) + geom_line()
+
+install.packages("muhaz")
+library(muhaz)
+data(ovarian, package="survival")
+?muhaz
+for (i in 0:17){
+  maxtime <- 18 - i
+  survdat <- periods %>% filter(as.integer(as.character(admission_age)) == i) %>% mutate(duration_days = duration / 1)
+  haz <- pehaz(survdat$duration_days, survdat$event)
+  plot(haz, main = paste("Survival hazard (yrs), age of entry", i))
+}
+
+install.packages("bshazard")
+library(bshazard)
+bsfit <- bshazard(Surv(duration, event) ~ 1, data = periods %>% filter(as.integer(as.character(admission_age)) == 0))
+plot(bsfit)
+summary(bsfit)
+?bshazard
+
+hazard <- data.frame(admission_age = c(), duration = c(), hazard = c(), lower_ci = c(), upper_ci = c())
+for (i in 0:17){
+  maxtime <- 18 - i
+  survdat <- periods %>% filter(as.integer(as.character(admission_age)) == 0)
+  haz <- bshazard(Surv(duration, event) ~ 1, data = survdat)
+  hazard <- rbind(hazard, data.frame(admission_age = c(i), duration = haz$time, hazard = haz$hazard, lower_ci = haz$lower.ci, upper_ci = haz$upper.ci))
+  plot(haz, main = paste("Survival hazard (yrs), age of entry", i))
+}
+
+hazard %>% group_by(admission_age) %>% summarise(sum = sum(hazard))
+
+write.csv(hazard, file.path(output_dir, "survival-hazard.csv"), row.names = FALSE)
+
+haz$time
+haz$hazard
+haz$lower.ci
+haz$upper.ci
 
 impute.quantiles <- function(df) {
   res <- df %>% as.data.frame %>% mutate(`100` = coalesce(`100`, 18:1 * 365))
@@ -1112,3 +1157,69 @@ melt(qs.imputed, id.vars = c("admission_age"), value.name = "duration") %>%
   labs(x = "Admission age", y = "Duration (years)", title = chart_title("Inferred duration boxplots"))
 
 ggsave(chart_path("inferred-duration-boxplot.png"), width = 11, height = 8)
+
+
+#  episodes
+
+placement_durations <- episodes %>% group_by(phase_id) %>% summarise(placement = placement[1],
+                                              duration = day_diff(min(report_date), max(ceased)),
+                                              start_age = year_diff(min(birthday), min(report_date)),
+                                              end_age = year_diff(min(birthday), max(ceased))) %>%
+  filter(!is.na(duration))
+
+placement_changes <- episodes %>% group_by(ID, phase_id) %>%
+  summarise(report_date = min(report_date),
+            birthday = min(birthday),
+            ceased = max(ceased),
+            placement = placement[1],
+            duration = day_diff(min(report_date), max(ceased)),
+            start_age = year_diff(min(birthday), min(report_date)),
+            end_age = year_diff(min(birthday), max(ceased))) %>%
+  arrange(ID, report_date) %>%
+  group_by(ID) %>%
+  mutate(next_placement = ifelse(is.na(lead(placement)) & !is.na(ceased), "OUT", lead(placement))) %>%
+  filter(!is.na(duration))
+
+placement_changes %>%
+  filter(placement=="Q2") %>%
+  filter(next_placement != "OUT") %>%
+  ggplot(aes(duration)) +
+  geom_histogram() +
+  facet_grid(rows = vars(next_placement),
+             cols = vars(start_age),
+             scales = "free_y")
+
+placement_changes %>%
+  filter(placement=="H5") %>%
+  filter(start_age == 16) %>%
+  ggplot(aes(duration, fill = next_placement)) +
+  geom_density(position = "fill", adjust = 2) +
+  theme_mastodon
+
+  # filter(q > 0.25 & q < 0.75)
+ggplot(by_age, aes(duration)) + geom_histogram()
+
+kruskal.test(duration ~ next_placement, data = by_age)
+
+placement_durations %>% group_by(placement) %>% summarise(n = n()) %>% arrange(desc(n))
+
+
+ggplot(placement_durations %>% filter(placement == "Q2"), aes(duration)) + geom_histogram() + facet_wrap(vars(end_age), scales = "free_y") +
+  theme_mastodon
+
+
+ggplot(placement_durations %>% filter(placement == "Q2"), aes(duration)) + geom_histogram() + facet_wrap(vars(end_age), scales = "free_y")
+
+
+ggplot(placement_durations %>% filter(placement == "R2"), aes(duration)) + geom_histogram() + facet_wrap(vars(start_age), scales = "free_y")
+ggplot(placement_durations %>% filter(placement == "R2"), aes(duration)) + geom_histogram() + facet_wrap(vars(end_age), scales = "free_y")
+
+
+ggplot(placement_durations %>% filter(placement == "P2"), aes(duration)) + geom_histogram() + facet_wrap(vars(start_age), scales = "free_y")
+ggplot(placement_durations %>% filter(placement == "P2"), aes(duration)) + geom_histogram() + facet_wrap(vars(end_age), scales = "free_y")
+
+ggplot(placement_durations %>% filter(placement == "A6"), aes(duration)) + geom_histogram() + facet_wrap(vars(start_age), scales = "free_y")
+ggplot(placement_durations %>% filter(placement == "A6"), aes(duration)) + geom_histogram() + facet_wrap(vars(end_age), scales = "free_y")
+
+
+
