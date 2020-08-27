@@ -278,7 +278,7 @@ learner.features.closed <- function(closed_episodes, max_date) {
   feature_episodes <- closed_episodes %>%
     group_by(period_id) %>% mutate(period_duration = day_diff(min(report_date), coalesce(max(ceased), max_date))) %>% ungroup %>%
     mutate(join = TRUE) %>%
-    inner_join(data.frame(day_offset = seq(7, 18 * 365, by = 28),
+    inner_join(data.frame(day_offset = c(1,2,4,6,8,10,12,14,16,18,20,24,seq(28, 18 * 365, by = 14)),
                           join = TRUE)) %>%
     mutate(feature_date = beginning + days(day_offset)) %>%
     filter(report_date < feature_date & feature_date < end) %>%
