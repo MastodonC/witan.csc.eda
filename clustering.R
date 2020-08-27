@@ -374,7 +374,8 @@ normalise_cols <- function(df, denominator) {
 }
 
 cluster_cases <- function(scc) {
-  scc.closed.features <- learner.features.closed(scc %>% filter(!is.na(end)))
+  max_date <- max(max(scc$report_date), max(scc$ceased, na.rm = TRUE))
+  scc.closed.features <- learner.features.closed(scc %>% filter(!is.na(end)), max_date)
   scc.open.features <- learner.features.open(scc %>% filter(is.na(end)))
   scc.closed.features <- add.zero.features(scc.closed.features, scc.open.features)
   scc.open.features <- add.zero.features(scc.open.features, scc.closed.features)
@@ -420,7 +421,6 @@ write.csv(ncc_clusters, "ncc-knn-closed-cases.csv", row.names = FALSE)
 ccc_clusters <- cluster_cases(ccc)
 write.csv(ccc_clusters, "ccc-knn-closed-cases.csv", row.names = FALSE)
 
-max_date <- max(ccc$report_date)
 
 plot_distribution <- function(df, clusters) {
   period_durations <- df %>%
