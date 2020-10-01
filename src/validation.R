@@ -4,14 +4,14 @@ library(tidyquant)
 install.packages("extrafont")
 library(extrafont)
 library(ggplot2)
+library(ggthemes)
 
-
-theme_mastodon <- theme(plot.title = element_text(# family = "Open Sans SemiBold",
+theme_mastodon <- theme(plot.title = element_text(family = "Open Sans SemiBold",
                                                   hjust = 0.5, size = 20,
                                                   margin = margin(0,0,15,0)),
-                        axis.title = element_text(# family = "Open Sans SemiBold",
+                        axis.title = element_text(family = "Open Sans SemiBold",
                                                   hjust = 0.5, size = 16),
-                        axis.text = element_text(# family = "Open Sans",
+                        axis.text = element_text(family = "Open Sans",
                                                  hjust = 0.5, size = 10),
                         axis.text.x = element_text(angle = -45),
                         axis.title.x = element_text(margin = margin(15,0,0,0)),
@@ -23,6 +23,24 @@ theme_mastodon <- theme(plot.title = element_text(# family = "Open Sans SemiBold
 font_import()
 loadfonts()
 
+output_dir <- file.path(output_root, Sys.Date())
+
+## create our dated data output subdir if it doesn't exist
+if(!dir.exists(output_dir)) {
+  dir.create(output_dir)
+}
+
+chart_title <- function(title){
+  paste(la_label, "-", title)
+}
+
+chart_path <- function(path) {
+  file.path(output_dir, "charts", paste0(Sys.Date(),"-",basename(path)))
+}
+
+
+
+
 output_all_charts <- function(la_label, train_yrs, project_yrs) {
   set.seed(5)
   output_file <- chart_path(paste0(la_label, "-train-", train_yrs, "-yr-project-", project_yrs, "yr.pdf"))
@@ -32,10 +50,11 @@ output_all_charts <- function(la_label, train_yrs, project_yrs) {
     dir.create(dirname(output_file), recursive = TRUE)
   pdf(output_file, # fonts = c("Open Sans", "Open Sans SemiBold"),
       paper = "a4r")
-  projection_name <- paste0("episodes-rewind-1yr-train-", train_yrs, "yr-project-", project_yrs, "yr-runs-100-seed-42")
+  projection_name <- paste0("scc-episodes-2019-01-24-rewind-1yr-train-", train_yrs, "yr-project-", project_yrs, "yr-runs-100-seed-42")
   episodes <- read.csv(file.path(input_dir, "episodes.scrubbed.csv"), header = TRUE, stringsAsFactors = FALSE, na.strings ="NA")
   episodes$report_date <- ymd(episodes$report_date)
   episodes$ceased <- ymd(episodes$ceased)
+  end_date <- max(c(episodes$ceased, episodes$report_date), na.rm = TRUE)
   birthdays <- episodes %>%
     group_by(ID) %>%
     summarise(birthday = imputed_birthday(DOB[1], min(report_date), coalesce(max(ceased), end_date)))
@@ -43,7 +62,8 @@ output_all_charts <- function(la_label, train_yrs, project_yrs) {
   episodes <- episodes %>% group_by(phase_id) %>% mutate(admission_age = year_diff(min(birthday), min(report_date))) %>% ungroup
   episodes$placement_category <- substr(episodes$placement, 1, 1)
   
-  projected_episodes <- file.path(input_dir, paste0(projection_name, "-placements-model-2.2-nojoiners.csv"))
+  projected_episodes <- file.path(input_dir, paste0(projection_name, ".csv"))
+  print(projected_episodes)
   projected_episodes <- read.csv(projected_episodes, header = TRUE, stringsAsFactors = FALSE, na.strings ="")
   projected_episodes$Start <- ymd(projected_episodes$Start)
   projected_episodes$End <- ymd(projected_episodes$End)
@@ -325,9 +345,9 @@ output_all_charts <- function(la_label, train_yrs, project_yrs) {
 }
 
 
-plot_summary <- function(input_dir, train_yrs, project_from, project_yrs, test.placement) {
+plot_summary <- function(train_yrs, project_from, project_yrs, test.placement) {
   projection_name <- paste0("episodes-rewind-1yr-train-", train_yrs, "yr-project-", project_yrs, "yr-runs-100-seed-42")
-  projected_episodes <- file.path(input_dir, paste0(projection_name, "-v4-ceased-model.csv"))
+  projected_episodes <- file.path(input_dir, paste0(projection_name, ".csv"))
   projected_episodes <- read.csv(projected_episodes, header = TRUE, stringsAsFactors = FALSE, na.strings ="")
   projected_episodes$Start <- ymd(projected_episodes$Start)
   projected_episodes$End <- ymd(projected_episodes$End)
@@ -450,6 +470,8 @@ plot_summary <- function(input_dir, train_yrs, project_from, project_yrs, test.p
     labs(fill = "Age", title = chart_title(test.placement), x = "Date", y = "Cumulative Count")
 }
 
+
+
 day_diff <- function(start, stop) {
   as.numeric(difftime(stop, start, units = "days"))
 }
@@ -489,7 +511,119 @@ plot_distribution_lifetimes(read.csv(projected_episodes, na.strings = ""))
 
 simulated_episodes <- read.csv(projected_episodes, na.strings = "")
 
-plot_summary(input_dir, 3, as.Date("2019-01-01"), 5, "R2")
+plot_summary(3, as.Date("2019-03-30"), 5, "R1")
 
 output_all_charts(la_label, 3, 5)
 
+
+### Layer cake with simulated / predicted
+library('shades')
+ccc <- "/Users/henry/Mastodon C/witan.cic/data/ccc/2020-06-09/ccc-episodes-2020-03-30-rewind-0yr-train-3yr-project-5yr-runs-100-seed-42-euclidean.csv"
+scc <- "/Users/henry/Mastodon C/witan.cic/data/scc/2020-08-27/scc-episodes-2019-01-24-rewind-0yr-train-3yr-project-5yr-runs-100-seed-42-euclidean.csv"
+
+episodes <- read.csv(scc, na.strings = "") %>%
+  filter(Simulation < 10) %>%
+  mutate(Offset.End = as.integer(day_diff(Period.Start, End)),
+         Provenance = ifelse(is.na(Provenance), "S", Provenance))
+
+top_age_pathways <- episodes %>% filter(Provenance == "H") %>% group_by(ID) %>% slice(1) %>%
+  group_by(Admission.Age, Placement.Pathway) %>% summarise(n = n()) %>% arrange(desc(n)) %>%
+  as.data.frame
+top_age_pathways <- top_age_pathways[1:50,]
+
+# Plot layer cake
+offsets <- seq(0, max(episodes$Period.Duration), 7)
+episodes.weekly <- data.frame(offset = offsets) %>%
+  inner_join(episodes, by = character()) %>%
+  filter(offset >= Offset & offset <= Offset.End) %>%
+  mutate(Placement.P = ifelse(!is.na(Match.Offset) & offset >= Match.Offset, paste0(Placement, ".P"), Placement))
+
+episodes.weekly <- episodes.weekly %>%
+  mutate(Provenance = ifelse(Provenance == "P", "PB", Provenance)) %>%
+  rbind(episodes.weekly %>%
+          filter(Provenance == "P" & offset < Match.Offset) %>%
+          mutate(Provenance = "PA"))
+
+all.placements <- c("A3", "A4", "A5", "A6", "H5", "K1", "K2", "M2", "M3", "P1", "P2",
+                    "Q1","Q2", "R1", "R2", "R3", "R5", "S1", "T0", "T4", "Z1",
+                    'Join')
+
+my.colours <- tableau_color_pal("Tableau 20")(20)
+my.colours <- c(my.colours, "#888888", "#FFFFFF")
+
+all.colours <- c(my.colours, brightness(my.colours, 1.2))
+all.placements <- c(all.placements, paste0(all.placements, ".P"))
+names(all.colours) <- all.placements
+
+output_file <-  "/Users/henry/Mastodon C/witan.cic/data/scc.placements.euclidean.pdf"
+pdf(file = output_file, paper = "a4r", width=11, height=8.5)
+for (i in 1:nrow(top_age_pathways)) {
+  episodes.filtered <- episodes.weekly %>% filter(Placement.Pathway == top_age_pathways[i,"Placement.Pathway"] &
+                                                  Admission.Age == top_age_pathways[i,"Admission.Age"]) %>%
+    mutate(ID = paste0(ID, ".", Simulation), Placement = ifelse(!is.na(Match.Offset) & offset > Match.Offset - 10 & offset < Match.Offset + 10, "Join", Placement)) %>%
+    dplyr::select(offset, Simulation, ID, Placement, Period.Duration, Provenance, Match.Offset, Matched.ID, Matched.Offset)
+
+    matches <- episodes.filtered %>% filter(!is.na(Matched.ID)) %>% dplyr::distinct(ID, Matched.ID, Match.Offset, Simulation)
+    matched_episodes <- episodes.weekly %>%
+      mutate(ID = paste0(ID, ".", Simulation)) %>%
+      dplyr::select(offset, Simulation, ID, Placement, Period.Duration, Provenance, Match.Offset, Matched.ID, Matched.Offset) %>%
+      inner_join(matches %>% mutate(Matched.ID = paste0(Matched.ID, ".", Simulation)), by = c("ID" = "Matched.ID")) %>%
+      mutate(ID = ID.y, Provenance = "M") %>%
+      dplyr::select(-c("ID.y", "Match.Offset.y", "Simulation.y")) %>%
+      setNames(colnames(episodes.filtered))
+
+  episodes.filtered <- rbind(episodes.filtered, matched_episodes)
+  
+  episodes.filtered %>% filter(Provenance == "M") %>% distinct(ID)
+  
+  ordered <- episodes.filtered %>% group_by(ID) %>%
+    summarise(Period.Duration = max(Period.Duration)) %>%
+    arrange(Period.Duration)
+  
+  provenance_labels <- c("Historic Closed", "Historic Open", "Matched Closed", "Projected Closed", "Simulated")
+  names(provenance_labels) <- c("H", "PA", "M", "PB", "S")
+  
+  episodes.filtered$ID <- factor(episodes.filtered$ID, levels = ordered$ID)
+  episodes.filtered$Provenance <- factor(episodes.filtered$Provenance, levels = c("H", "PA", "M", "PB", "S"))
+  print(episodes.filtered %>%
+    filter(Simulation < 20) %>%
+    ggplot(aes(offset, ID, fill = Placement)) +
+    geom_tile() +
+    scale_fill_manual(values = all.colours) +
+    theme_mastodon +
+    theme(axis.text.y = element_blank(),
+          axis.ticks.y = element_blank(),
+          panel.background = element_blank(),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank()) +
+    facet_grid(cols = vars(Provenance), scales = "free_y", labeller = labeller(Provenance = provenance_labels)) +
+    labs(x = "Days in care", y = "Period in care",
+         title = paste0("Join age ",top_age_pathways[i,"Admission.Age"], ", pathway ", top_age_pathways[i,"Placement.Pathway"])))
+}
+dev.off()
+embed_fonts(file = output_file,outfile = output_file)
+
+
+pathway = "A4"
+episodes.filtered <- episodes.weekly %>% filter(Placement.Pathway == pathway) %>% mutate(ID = paste0(ID, ".", Simulation))
+ordered <- episodes.filtered %>% group_by(ID) %>% summarise(Period.Duration = max(Period.Duration)) %>% arrange(Period.Duration)
+provenance_labels <- c("Historic Closed", "Historic Open", "Projected Closed", "Simulated")
+names(provenance_labels) <- c("H", "PA", "PB", "S")
+episodes.filtered$ID <- factor(episodes.filtered$ID, levels = ordered$ID)
+episodes.filtered$Provenance <- factor(episodes.filtered$Provenance, levels = c("H", "PA", "PB", "S"))
+print(episodes.filtered %>%
+        filter(Simulation < 20) %>%
+        ggplot(aes(offset, ID, fill = Placement)) +
+        geom_tile() +
+        scale_fill_manual(values = all.colours) +
+        theme_mastodon +
+        theme(axis.text.y = element_blank(),
+              axis.ticks.y = element_blank(),
+              panel.background = element_blank(),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank()) +
+        facet_grid(cols = vars(Provenance), scales = "free_y", labeller = labeller(Provenance = provenance_labels)) +
+        labs(x = "Days in care", y = "Period in care",
+             title = paste0("Pathway ", pathway)))
+
+      
