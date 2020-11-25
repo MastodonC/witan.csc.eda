@@ -11,6 +11,7 @@ projected_episodes_file <- ''
 output_file <- ''
 output_file_joiners <- ''
 project_from <- as.Date("2019-08-13")
+output_file_layercake <- ''
 project_yrs <- 5
 
 font_import()
@@ -131,14 +132,14 @@ output_all_charts <- function() {
             scale_color_manual(values = colours) +
             labs(title = paste0(test.placement), x = "Date", y = "CiC"))
   }
-  
+
   for (test.age in 0:17) {
     projected <- data.frame(date = c(), lower.ci = c(), q1 = c(), median = c(), q3 = c(), upper.ci = c())
     for (date in dates) {
       date <- as.Date(date)
       counts_by_simulation <- projected_episodes %>%
         filter(Start <= date & (is.na(End) | End >= date)) %>%
-        mutate(Birthday = floor_date(Birthday, unit = "month")) %>%
+        # mutate(Birthday = ceiling_date(Birthday, unit = "month")) %>%
         filter(year_diff(Birthday, date) == test.age) %>%
         group_by(Simulation) %>%
         summarise(n = n())
@@ -170,22 +171,22 @@ output_all_charts <- function() {
   # Joiners
   
   join_leave_projected <- projected_episodes %>%
-    mutate(Birthday = floor_date(Birthday, unit = "month")) %>%
+    # mutate(Birthday = ceiling_date(Birthday, unit = "month")) %>%
     group_by(Simulation, ID) %>%
     summarise(Join = min(Start),
               Leave = max(End),
               Birthday = Birthday[1]) %>%
     mutate(Join.Age = year_diff(Birthday, Join),
-           Leave.Age = year_diff(Birthday, Leave))
+           Leave.Age = year_diff(Birthday, Leave - days(1)))
   
   join_leave_actual_summary <- episodes %>%
-    mutate(birthday = floor_date(birthday, unit = "month")) %>%
+    # mutate(birthday = ceiling_date(birthday, unit = "month")) %>%
     group_by(period_id) %>%
     summarise(Join = min(report_date),
               Leave = max(ceased),
               Birthday = birthday[1]) %>%
     mutate(Join.Age = year_diff(Birthday, Join),
-           Leave.Age = year_diff(Birthday, Leave))
+           Leave.Age = year_diff(Birthday, Leave - days(1)))
   
   join_projected_ci <- join_leave_projected %>%
     mutate(Join = floor_date(Join, unit = "month")) %>%
@@ -311,6 +312,15 @@ output_all_charts()
 dev.off()
 embed_fonts(file = output_file, outfile = output_file)
 
+elapsed_months <- function(end_date, start_date) {
+  ed <- as.POSIXlt(end_date)
+  sd <- as.POSIXlt(start_date)
+  12 * (ed$year - sd$year) + (ed$mon - sd$mon) - as.integer(ed$mday < sd$mday)
+}
+
+elapsed_months(as.Date("2021-12-01"), as.Date("2020-01-01")) %% 12
+
+
 plot_summary <- function(project_from, project_yrs) {
   projected_episodes <- read.csv(projected_episodes_file, header = TRUE, stringsAsFactors = FALSE, na.strings ="")
   projected_episodes$Start <- ymd(projected_episodes$Start)
@@ -318,7 +328,7 @@ plot_summary <- function(project_from, project_yrs) {
   projected_episodes$Birthday <- ymd(projected_episodes$Birthday)
   projected_episodes <- projected_episodes %>% group_by(Simulation, ID) %>% mutate(Min.Start = min(Start), Max.End = max(End)) %>% ungroup
   projected_periods <- projected_episodes %>% group_by(Simulation, ID) %>% summarise(Min.Start = min(Start), Max.End = max(End)) %>% ungroup
-  dates <- seq(as.Date("2016-01-01"), project_from + years(project_yrs), by = "week")
+  dates <- seq(as.Date("2011-01-01"), project_from + years(project_yrs), by = "week")
   colours = tableau_color_pal("Tableau 20")(20)
   projected <- data.frame(date = c(), joiners.count = c(), cic.count = c(), median.open.duration = c(), median.closed.duration = c())
   for (date in dates) {
@@ -388,46 +398,440 @@ plot_summary <- function(project_from, project_yrs) {
       theme_mastodon +
       labs(fill = "Age", title = test.placement, x = "Date", y = "Cumulative Count"))
   }
+  
+  for (test.age in c(17)) {
+    by_age <- data.frame(date = c(), variable = c(), value = c())
+    for (date in dates) {
+      date <- as.Date(date)
+      in.cic <- projected_episodes %>%
+        filter(Start <= date & (is.na(End) | End >= date)) %>%
+        mutate(Age = year_diff(Birthday, date)) %>%
+        filter(Age == test.age) %>%
+        group_by(Placement, Simulation) %>%
+        summarise(n = n()) %>%
+        summarise(count = mean(n))
+      
+      joiners <- projected_episodes %>%
+        filter(Start <= date & Admission.Age == test.age) %>%
+        group_by(Simulation) %>%
+        summarise(n = n()) %>%
+        summarise(count = mean(n))
+      
+      res <- data.frame(date = c(date), variable = c(in.cic$Placement, "Joined"), value = c(in.cic$count, joiners$count))
+      
+      by_age <- rbind(by_age, res)
+    }
+    by_age[by_age$variable == "Joined",]$value <- by_age[by_age$variable == "Joined",]$value - min(by_age[by_age$variable == "Joined",]$value)
+    n_factors <- length(unique(by_age$variable))
+    by_age$variable <- factor(by_age$variable, levels = rev(c("Joined", all_placements)))
+    cols <- colours
+    cols[n_factors] <- NA
+    print(ggplot(by_age, aes(x = date, y = value, fill = variable)) +
+            geom_vline(aes(xintercept = project_from), colour = "black", linetype = 2) +
+            geom_bar(stat = "identity", position = "stack") +
+            scale_fill_manual(values = cols) +
+            theme_mastodon +
+            labs(fill = "Age", title = test.age, x = "Date", y = "Cumulative Count"))
+  }
+  
+  for (test.age in c(17)) {
+    by_age <- data.frame(date = c(), variable = c(), value = c())
+    for (date in dates) {
+      date <- as.Date(date)
+      in.cic <- projected_episodes %>%
+        mutate(Label = if_else(Admission.Age == 17, "Joined @ 17", "Joined < 17")) %>%
+        filter(Start <= date & (is.na(End) | End >= date)) %>%
+        mutate(Age = year_diff(Birthday, date)) %>%
+        filter(Age == test.age) %>%
+        group_by(Label, Simulation) %>%
+        summarise(n = n()) %>%
+        summarise(count = mean(n))
+      
+      joiners <- projected_episodes %>%
+        filter(Start <= date & Admission.Age == test.age) %>%
+        group_by(Simulation) %>%
+        summarise(n = n()) %>%
+        summarise(count = mean(n))
+      
+      res <- data.frame(date = c(date), variable = c(in.cic$Label, "Joined"), value = c(in.cic$count, joiners$count))
+      
+      by_age <- rbind(by_age, res)
+    }
+    by_age[by_age$variable == "Joined",]$value <- by_age[by_age$variable == "Joined",]$value - min(by_age[by_age$variable == "Joined",]$value)
+    n_factors <- length(unique(by_age$variable))
+    by_age$variable <- factor(by_age$variable, levels = rev(c("Joined", "Joined @ 17", "Joined < 17")))
+    cols <- colours
+    cols[n_factors] <- NA
+    print(ggplot(by_age, aes(x = date, y = value, fill = variable)) +
+            geom_vline(aes(xintercept = project_from), colour = "black", linetype = 2) +
+            geom_bar(stat = "identity", position = "stack") +
+            scale_fill_manual(values = cols) +
+            theme_mastodon +
+            labs(fill = "Label", title = test.age, x = "Date", y = "Cumulative Count"))
+  }
+  
+  for (test.age in c(17)) {
+    by_age <- data.frame(date = c(), variable = c(), value = c())
+    for (date in dates) {
+      date <- as.Date(date)
+      Labels <- 0:11
+      in.cic <- projected_episodes %>%
+        mutate(Label = elapsed_months(date, Birthday) %% 12) %>%
+        filter(Start <= date & (is.na(End) | End >= date)) %>%
+        mutate(Age = year_diff(Birthday, date)) %>%
+        filter(Age == test.age) %>%
+        group_by(Label, Simulation) %>%
+        summarise(n = n()) %>%
+        summarise(count = mean(n))
+      
+      joiners <- projected_episodes %>%
+        filter(Start <= date & Admission.Age == test.age) %>%
+        group_by(Simulation) %>%
+        summarise(n = n()) %>%
+        summarise(count = mean(n))
+      
+      res <- data.frame(date = c(date), variable = c(in.cic$Label, "Joined"), value = c(in.cic$count, joiners$count))
+      
+      by_age <- rbind(by_age, res)
+    }
+    by_age[by_age$variable == "Joined",]$value <- by_age[by_age$variable == "Joined",]$value - min(by_age[by_age$variable == "Joined",]$value)
+    n_factors <- length(unique(by_age$variable))
+    by_age$variable <- factor(by_age$variable, levels = rev(c("Joined", Labels)))
+    cols <- colours
+    cols[n_factors] <- NA
+    print(ggplot(by_age, aes(x = date, y = value, fill = variable)) +
+            geom_vline(aes(xintercept = project_from), colour = "black", linetype = 2) +
+            geom_bar(stat = "identity", position = "stack") +
+            scale_fill_manual(values = cols) +
+            theme_mastodon +
+            labs(fill = "Age (months after 17th birthday)", title = test.age, x = "Date", y = "Cumulative Count"))
+  }
 }
+
+elapsed_months(as.Date("2020-11-11"), as.Date("2020-10-03"))
 
 pdf(output_file_joiners, fonts = c("Open Sans", "Open Sans SemiBold"), paper = "a4r")
 plot_summary(project_from, project_yrs)
 dev.off()
 embed_fonts(file = output_file_joiners, outfile = output_file_joiners)
 
-## Ceases per week
+projected_episodes <- read.csv(projected_episodes_file, header = TRUE, stringsAsFactors = FALSE, na.strings ="")
+
+projected_episodes %>%
+  # mutate(Birthday = ceiling_date(Birthday, unit = "month")) %>%
+  group_by(Simulation, ID) %>%
+  summarise(Join = min(Start),
+            Leave = max(End),
+            Birthday = Birthday[1]) %>%
+  mutate(Join.Age = year_diff(Birthday, Join),
+         Leave.Age = year_diff(Birthday, Leave - days(1))) %>%
+
+## Plot frequency of segments used in matching to see if there’s bias
+
+matched_segments <- read.csv("/Users/henry/Mastodon C/witan.cic/matched-segments.csv", col.names = c("period_id", "segment_id"))
+matched_segments %>%
+  group_by(segment_id) %>%
+  summarise(n = n()) %>%
+  ggplot(aes(n)) + geom_histogram(bins = 250) +
+  theme_mastodon +
+  labs(x = "Number of times a segment was incorporated during projection", y = "Unique segments", title = "Most segments are used only once, but some are used ~50 times")
+
+## Layer cake plots
+
+projected_episodes <- read.csv(projected_episodes_file, header = TRUE, stringsAsFactors = FALSE, na.strings = "")
+projected_episodes$Start <- ymd(projected_episodes$Start)
+projected_episodes$End <- ymd(projected_episodes$End)
+projected_episodes$Birthday <- ymd(projected_episodes$Birthday)
+projected_episodes$Placement.Category <- substr(projected_episodes$Placement, 1, 1)
+
+projected_episodes <- projected_episodes %>%
+  filter(Simulation < 10) %>%
+  mutate(Offset.End = as.integer(day_diff(Period.Start, End)),
+         Provenance = ifelse(is.na(Provenance), "S", Provenance))
+
+top_age_pathways <- projected_episodes %>% filter(Provenance == "H") %>% group_by(ID) %>% slice(1) %>%
+  group_by(Admission.Age, Placement.Pathway) %>% summarise(n = n()) %>% arrange(desc(n)) %>%
+  as.data.frame
+top_age_pathways <- top_age_pathways[1:50,]
+
+offsets <- seq(0, max(projected_episodes$Period.Duration), 7)
+episodes.weekly <- data.frame(offset = offsets) %>%
+  inner_join(projected_episodes, by = character()) %>%
+  filter(offset >= Offset & offset <= Offset.End) %>%
+  mutate(Placement.P = ifelse(!is.na(Match.Offset) & offset >= Match.Offset, paste0(Placement, ".P"), Placement))
+
+episodes.weekly <- episodes.weekly %>%
+  mutate(Provenance = ifelse(Provenance == "P", "PB", Provenance)) %>%
+  rbind(episodes.weekly %>%
+          filter(Provenance == "P" & offset < Match.Offset) %>%
+          mutate(Provenance = "PA"))
+
+all.placements <- c("A3", "A4", "A5", "A6", "H5", "K1", "K2", "M2", "M3", "P1", "P2",
+                    "Q1","Q2", "R1", "R2", "R3", "R5", "S1", "T0", "T4", "Z1",
+                    'Join')
+
+my.colours <- tableau_color_pal("Tableau 20")(20)
+my.colours <- c(my.colours, "#888888", "#FFFFFF")
+
+all.colours <- c(my.colours, my.colours)
+all.placements <- c(all.placements, paste0(all.placements, ".P"))
+names(all.colours) <- all.placements
+
+
+pdf(file = output_file_layercake, paper = "a4r", width=11, height=8.5)
+for (i in 1:nrow(top_age_pathways)) {
+  episodes.filtered <- episodes.weekly %>% filter(Placement.Pathway == top_age_pathways[i,"Placement.Pathway"] &
+                                                    Admission.Age == top_age_pathways[i,"Admission.Age"]) %>%
+    mutate(ID = paste0(ID, ".", Simulation), Placement = ifelse(!is.na(Match.Offset) & offset > Match.Offset - 10 & offset < Match.Offset + 10, "Join", Placement)) %>%
+    dplyr::select(offset, Simulation, ID, Placement, Period.Duration, Provenance, Match.Offset, Matched.ID, Matched.Offset)
+  
+  matches <- episodes.filtered %>% filter(!is.na(Matched.ID)) %>% dplyr::distinct(ID, Matched.ID, Match.Offset, Simulation)
+  
+  ordered <- episodes.filtered %>% group_by(ID) %>%
+    summarise(Period.Duration = max(Period.Duration)) %>%
+    arrange(Period.Duration)
+  
+  provenance_labels <- c("Historic Closed", "Historic Open", "Matched Closed", "Projected Closed", "Simulated")
+  names(provenance_labels) <- c("H", "PA", "M", "PB", "S")
+  
+  episodes.filtered$ID <- factor(episodes.filtered$ID, levels = ordered$ID)
+  episodes.filtered$Provenance <- factor(episodes.filtered$Provenance, levels = c("H", "PA", "M", "PB", "S"))
+  print(episodes.filtered %>%
+          filter(Simulation < 20) %>%
+          filter((Provenance == "H" & Simulation == 1) | Provenance != "H") %>%
+          ggplot(aes(offset, ID, fill = Placement)) +
+          geom_tile() +
+          scale_fill_manual(values = all.colours) +
+          theme_mastodon +
+          theme(axis.text.y = element_blank(),
+                axis.ticks.y = element_blank(),
+                panel.background = element_blank(),
+                panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank()) +
+          facet_grid(cols = vars(Provenance), scales = "free_y", labeller = labeller(Provenance = provenance_labels)) +
+          labs(x = "Days in care", y = "Period in care",
+               title = paste0("Join age ",top_age_pathways[i,"Admission.Age"], ", pathway ", top_age_pathways[i,"Placement.Pathway"])))
+}
+dev.off()
+embed_fonts(file = output_file_layercake,outfile = output_file_layercake)
+
+## Matched segments
+
+offset_groups <- read.csv("/Users/henry/Mastodon C/witan.cic/offset-groups.csv")
+matched_segments <- read.csv("/Users/henry/Mastodon C/witan.cic/matched-segments.csv", col.names = c("Period", "Segment"))
+
+all_matched_segments <- offset_groups %>%
+  inner_join(matched_segments, by = c("id" = "Segment"))
+
+all_matched_segments %>%
+  group_by(from.placement, id) %>%
+  summarise(n = n()) %>%
+  ggplot(aes(n, fill = from.placement)) + geom_histogram(bins = 100) +
+  facet_wrap(vars(from.placement), scales = "free_y") +
+  scale_fill_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  theme_mastodon +
+  labs(title = "Segment occurrence counts by from-placement")
+
+all_matched_segments %>%
+  group_by(age, id) %>%
+  summarise(n = n()) %>%
+  mutate(age = factor(age)) %>%
+  ggplot(aes(n, fill = age)) + geom_histogram(bins = 100) +
+  facet_wrap(vars(age), scales = "free_y") +
+  scale_fill_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  theme_mastodon +
+  labs(title = "Segment occurrence counts by age")
+
+all_matched_segments %>%
+  mutate(offset_zero = offset == 0) %>%
+  group_by(offset_zero, id) %>%
+  summarise(n = n()) %>%
+  ggplot(aes(n, fill = offset_zero)) + geom_histogram(bins = 100) +
+  facet_wrap(vars(offset_zero), scales = "free_y") +
+  scale_fill_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  theme_mastodon +
+  labs(title = "Segment occurrence counts by offset is zero")
+
+tab <- all_matched_segments %>%
+  group_by(id, from.placement, to.placement, age, terminal, duration, offset) %>%
+  summarise(n = n()) %>%
+  filter(n > 80) %>%
+  arrange(desc(n)) # %>%
+  write.csv(., file = "most-used-segments.csv")
+  
+  all_matched_segments %>%
+    filter(id == 1495510)
+  all_matched_segments %>%
+    filter(id == 1414)
+
+  episodes %>%
+    filter(period_id %in% c("3370-1", "3371-1"))
+  
+## Age 17 duration in care
+  
+  episodes <- read.csv(actual_episodes_file, header = TRUE, stringsAsFactors = FALSE, na.strings ="NA")
+  episodes$report_date <- ymd(episodes$report_date)
+  episodes$ceased <- ymd(episodes$ceased)
+  end_date <- max(c(episodes$ceased, episodes$report_date), na.rm = TRUE)
+  birthdays <- episodes %>% group_by(ID) %>% summarise(birthday = imputed_birthday(DOB[1], min(report_date), coalesce(max(ceased), end_date)))
+  episodes <- episodes %>% inner_join(birthdays)
+  episodes <- episodes %>% group_by(phase_id) %>% mutate(admission_age = year_diff(min(birthday), min(report_date))) %>% ungroup
+  episodes$placement_category <- substr(episodes$placement, 1, 1)
+  
+  projected_episodes <- read.csv(projected_episodes_file, header = TRUE, stringsAsFactors = FALSE, na.strings ="")
+  projected_episodes$Start <- ymd(projected_episodes$Start)
+  projected_episodes$End <- ymd(projected_episodes$End)
+  projected_episodes$Birthday <- ymd(projected_episodes$Birthday)
+  projected_episodes$Placement.Category <- substr(projected_episodes$Placement, 1, 1)
+
+episodes %>%
+  group_by(period_id, birthday) %>%
+  summarise(beginning = min(report_date), end = max(ceased)) %>%
+  filter(!is.na(end)) %>%
+  mutate(birthday_17 = birthday + years(17)) %>%
+  mutate(cease_after_birthday_17 = as.integer(end - birthday_17)) %>%
+  filter(cease_after_birthday_17 > 0)
+
+projected_periods <- projected_episodes %>%
+  group_by(Simulation, Provenance, ID, Birthday) %>%
+  summarise(beginning = Start[1], end = End[1]) %>%
+  rename(birthday = Birthday, id = ID)
+
+projected_periods_after_17 <- projected_periods %>%
+  filter(!is.na(end)) %>%
+  mutate(birthday_17 = birthday + years(17)) %>%
+  mutate(cease_after_birthday_17 = as.integer(end - birthday_17)) %>%
+  filter(cease_after_birthday_17 > 0)
+
+dev.off()
+ggplot(projected_periods_after_17, aes(cease_after_birthday_17, fill = Provenance)) +
+  geom_histogram(bins = 12) +
+  facet_wrap(vars(Provenance), scales = "free_y") +
+  scale_fill_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  theme_mastodon +
+  labs(title = "Age 17 leavers are projected more likely to leave before their birthday",
+       x = "Days after 17th birthday")
+
+
+## Survival analysis of durations in care
 
 projected_episodes <- read.csv(projected_episodes_file, header = TRUE, stringsAsFactors = FALSE, na.strings ="")
-projected_episodes %>%
-  mutate(End = ymd(End)) %>%
-  filter(Simulation == 1) %>%
-  filter(Provenance == "P") %>%
-  filter(!is.na(End)) %>%
-  mutate(End_week = floor_date(End, "day")) %>%
-  group_by(End_week) %>%
-  summarise(n = n()) %>%
-  ggplot(aes(End_week, n)) + geom_line()
+projected_episodes$Period.Start <- ymd(projected_episodes$Period.Start)
+projected_episodes$Period.End <- ymd(projected_episodes$Period.End)
+projected_episodes$Birthday <- ymd(projected_episodes$Birthday)
+projected_episodes$Placement.Category <- substr(projected_episodes$Placement, 1, 1)
+projected_episodes$Admission.Age <- factor(projected_episodes$Admission.Age)
 
-projected_episodes %>%
-  mutate(Start = ymd(Start)) %>%
-  filter(Simulation == 1) %>%
-  filter(Provenance == "P") %>%
-  filter(Start == project_from) %>%
-  filter(ID %in% (projected_episodes %>%
-                    mutate(End = ymd(End)) %>%
-                    filter(Simulation == 1) %>%
-                    filter(Placement == "Q1") %>%
-                    filter(End == project_from - 1))$ID)
+## Attempt 1
 
-projected_episodes %>%
+historic_episodes <- projected_episodes %>%
+  filter(Simulation == 1 && Provenance %in% c("H", "P")) %>%
   group_by(ID) %>%
-  summarise(Provenance = Provenance[1],
-            Period.Duration = Period.Duration[1]) %>%
-  group_by(Provenance) %>%
-  mutate(Q = ecdf(Period.Duration)(Period.Duration)) %>%
-  ggplot(aes(Period.Duration, Q, colour = Provenance)) + geom_line() +
-  theme_mastodon +
-  labs(title = "Projected periods have a different distribution",
-       y = "Quantile")
-  
+  slice(1) %>%
+  select(Simulation, ID, Period.Start, Period.End, Admission.Age, Birthday, Provenance)
 
+historic_episodes <- historic_episodes %>%
+  mutate(Event = if_else(Period.End >= project_from, 0, 1)) %>%
+  mutate(Measured.Duration = day_diff(Period.Start, min(Period.End, project_from)),
+         Model.Duration = day_diff(Period.Start, Period.End))
+
+impute.quantiles <- function(df) {
+  res <- df %>% as.data.frame %>% mutate(`100` = coalesce(`100`, 18:1 * 365))
+  res <- t(na.approx(t(res))) %>% as.data.frame
+  res <- cbind(age = str_replace(rownames(df),"admission_age=", ""), res)
+  colnames(res) <- c("age", 0:100)
+  res
+}
+
+fit <- survfit(Surv(Measured.Duration, Event) ~ Admission.Age, data = historic_episodes)
+survival_quantiles <- stats::quantile(fit, probs = seq(0,1,length.out = 101))
+imputed <- impute.quantiles(survival_quantiles$quantile)
+imputed$age <- 0:17
+
+imputed_quantiles <- melt(imputed, id.vars = c("age")) %>%
+  mutate(Admission.Age = factor(age),
+         Group = paste(age),
+         variable = as.numeric(variable) / 100.0)
+
+ggplot() +
+  geom_line(data = imputed_quantiles, aes(value, variable, group = Admission.Age), linetype = 2, colour = "orange") +
+  facet_wrap(vars(Admission.Age))
+
+all_episodes <- projected_episodes %>%
+  group_by(ID) %>%
+  slice(1) %>%
+  select(Simulation, ID, Period.Start, Period.End, Admission.Age, Birthday, Provenance) %>%
+  mutate(Model.Duration = day_diff(Period.Start, Period.End))
+
+all_quantiles <- all_episodes %>%
+  group_by(Admission.Age, Simulation) %>%
+  mutate(quantile = ecdf(Model.Duration)(Model.Duration)) %>%
+  arrange(Model.Duration) %>%
+  mutate(Group = paste(Simulation, Admission.Age))
+
+
+ggplot() +
+  geom_line(data = all_quantiles, aes(Model.Duration, quantile, group = Group), alpha = 0.05) +
+  geom_line(data = imputed_quantiles, aes(value, variable, group = Group), linetype = 3, colour = "red") +
+  facet_wrap(vars(Admission.Age), ncol = 6, scales = "free_x") +
+  theme_mastodon +
+  labs(x = "Duration in care", y = "Quantile", title = "Comparison of estimated and modelled duration in care")
+
+
+## Attempt 2
+
+least <- function(a, b) {
+  if_else(a < b, a, b)
+}
+
+all_episodes <- projected_episodes %>%
+  group_by(ID) %>%
+  slice(1) %>%
+  ungroup %>%
+  select(Simulation, Provenance, ID, Period.Start, Period.End, Admission.Age, Birthday, Provenance) %>%
+  inner_join(data.frame(Age = 1:17), by = character()) %>%
+  mutate(Report.Date = Birthday + years(Age)) %>%
+  filter(Report.Date > Period.Start) %>%
+  mutate(Age = factor(Age)) %>%
+  mutate(Years.CiC = factor(year_diff(Period.Start,  least(Period.End, Report.Date)))) %>%
+  mutate(Event = if_else(Report.Date > Period.End, 1, 0)) %>%
+  mutate(Measured.Duration = day_diff(Period.Start, least(Period.End, Report.Date)),
+         Model.Duration = day_diff(Period.Start, Period.End))
+
+fit <- survfit(Surv(Measured.Duration, Event) ~ Age + Years.CiC, data = all_episodes %>% filter(Simulation == 1))
+survival_quantiles <- stats::quantile(fit, probs = seq(0,1,length.out = 101))
+
+factors <- data.frame(x = rownames(survival_quantiles$quantile)) %>%
+  mutate(vals = gsub("[a-zA-Z= .]", "", x)) %>%
+  mutate(age = factor(as.numeric(gsub(",.*", "", vals))),
+         years = factor(as.numeric(gsub(".*,", "", vals)))) %>%
+  select(age, years)
+
+imputed <- cbind(factors, survival_quantiles$quantile) %>%
+  mutate(`100` = if_else(is.na(`100`), (18 - as.numeric(age)) * 365, `100`))
+
+imputed_quantiles <- melt(imputed, id.vars = c("age", "years")) %>%
+  filter(!is.na(value)) %>%
+  mutate(Age = factor(age),
+         Years.CiC = factor(years),
+         Group = paste(age, years),
+         variable = as.numeric(variable) / 100.0)
+
+ggplot() +
+  geom_line(data = imputed_quantiles, aes(value, variable, group = Age), linetype = 2, colour = "orange") +
+  facet_grid(vars(Age), vars(Years.CiC)) +
+  theme_mastodon
+
+all_quantiles <- all_episodes %>%
+  group_by(Age, Years.CiC, Simulation) %>%
+  mutate(quantile = ecdf(Model.Duration)(Model.Duration)) %>%
+  arrange(Model.Duration) %>%
+  mutate(Group = paste(Simulation, Age, Years.CiC))
+
+ggplot() +
+  geom_line(data = all_quantiles, aes(Model.Duration, quantile, group = Group), alpha = 0.05) +
+  geom_line(data = imputed_quantiles, aes(value, variable, group = Group), linetype = 3, colour = "red") +
+  facet_grid(vars(Age), vars(Years.CiC)) +
+  theme_mastodon +
+  labs(x = "Duration in care", y = "Quantile", title = "Comparison of estimated and modelled duration in care")
+             
