@@ -888,7 +888,7 @@ periods %>%
   ggplot(aes(Period.Duration, cdf, group = group, colour = sample_label)) +
   geom_line() +
   scale_color_manual(values = tableau_color_pal("Tableau 20")(20)) +
-  labs(title = "Sampled cdf of age 0 joiners by year, 0 = first projection year") +
+  labs(title = "Sampled cdf of age 0 joiners split by historic & projected") +
   theme_mastodon +
   xlim(c(0,800)) +
   ylim(c(0,1))
