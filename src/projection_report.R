@@ -777,6 +777,18 @@ ggplot() +
   theme_mastodon +
   labs(x = "Duration in care", y = "Quantile", title = "Comparison of estimated and modelled duration in care")
 
+all_quantiles %>%
+  mutate(Short.Period = Model.Duration < 250) %>%
+  mutate(Leave.Year = factor(year(Period.End))) %>%
+  group_by(Admission.Age, Leave.Year, Simulation, Short.Period) %>%
+  summarise(n = n()) %>%
+  mutate(p = n / sum(n)) %>%
+  filter(Short.Period) %>%
+  ggplot(aes(Leave.Year, p)) +
+  geom_boxplot() +
+  facet_wrap(vars(Admission.Age)) +
+  theme_mastodon
+
 
 ## Attempt 2
 
@@ -835,3 +847,48 @@ ggplot() +
   theme_mastodon +
   labs(x = "Duration in care", y = "Quantile", title = "Comparison of estimated and modelled duration in care")
              
+
+
+## Plot durations by year and starting age
+
+
+periods <- projected_episodes %>%
+  group_by(Simulation, ID) %>%
+  slice(1) %>%
+  ungroup
+
+
+periods %>%
+  filter(Admission.Age == 0) %>%
+  inner_join(data.frame(sample_date = seq(project_from - years(8), project_from, '1 year'),
+                        sample_label = factor(seq(project_from - years(8), project_from, '1 year'))), by = character()) %>%
+  filter(sample_date >= Period.Start & sample_date <= Period.End) %>%
+  group_by(sample_label) %>%
+  mutate(group = paste(sample_label)) %>%
+  # mutate(Period.Duration = Period.Duration + rnorm(1, sd = 7)) %>%
+  mutate(cdf = ecdf(Period.Duration)(Period.Duration)) %>%
+  ungroup %>%
+  ggplot(aes(Period.Duration, cdf, group = group, colour = sample_label)) +
+  geom_line() +
+  scale_color_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  labs(title = "Sampled cdf of age 0 joiners by year") +
+  theme_mastodon
+
+
+periods %>%
+  filter(Admission.Age == 0) %>%
+  mutate(sample_label = year(Period.End - months(7) - days(12)) - 2019) %>%
+  filter(sample_label %in% -5:5) %>%
+  mutate(sample_label = if_else(sample_label < 0, "Historic", "Projected")) %>%
+  group_by(sample_label) %>%
+  mutate(group = paste(sample_label)) %>%
+  # mutate(Period.Duration = Period.Duration + rnorm(1, sd = 7)) %>%
+  mutate(cdf = ecdf(Period.Duration)(Period.Duration)) %>%
+  ungroup %>%
+  ggplot(aes(Period.Duration, cdf, group = group, colour = sample_label)) +
+  geom_line() +
+  scale_color_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  labs(title = "Sampled cdf of age 0 joiners by year, 0 = first projection year") +
+  theme_mastodon +
+  xlim(c(0,800)) +
+  ylim(c(0,1))
