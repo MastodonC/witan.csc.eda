@@ -288,7 +288,7 @@ output_all_charts <- function() {
           theme_mastodon +
           scale_color_manual(values = colours) +
           labs(title = "Joiners per month", x = "Date", y = "CiC") +
-          coord_cartesian(xlim = c(as.Date("2016-01-01"), as.Date("2022-02-01"))))
+          coord_cartesian(xlim = c(min(dates), max(dates))))
   
   print(ggplot() +
           geom_line(data =  leave_actuals, aes(x = date, y = value)) +
@@ -299,7 +299,7 @@ output_all_charts <- function() {
           theme_mastodon +
           scale_color_manual(values = colours) +
           labs(title = "Leavers per month", x = "Date", y = "CiC") +
-          coord_cartesian(xlim = c(as.Date("2016-01-01"), as.Date("2022-02-01"))))
+          coord_cartesian(xlim = c(min(dates), max(dates))))
   
   for (test.age in 0:17){
     
@@ -353,7 +353,7 @@ output_all_charts <- function() {
       scale_colour_manual(values = tableau_color_pal("Tableau 20")(20)) +
       theme_mastodon +
       labs(x = "Date", y = "Count", title = "Joiners, leavers & net growth + 12 period moving average") +
-      coord_cartesian(xlim = c(as.Date("2016-01-01"), as.Date("2020-01-01"))))
+      coord_cartesian(xlim = c(min(dates), max(dates))))
     
     print(ggplot() +
             geom_line(data = join_actuals, aes(x = date, y = value)) +
@@ -364,7 +364,7 @@ output_all_charts <- function() {
             theme_mastodon +
             scale_color_manual(values = colours) +
             labs(title = paste0("Age ", test.age, " joiners per month"), x = "Date", y = "CiC") +
-            coord_cartesian(xlim = c(as.Date("2016-01-01"), as.Date("2020-01-01"))))
+            coord_cartesian(xlim = c(min(dates), max(dates))))
     
     print(ggplot() +
             geom_line(data = leave_actuals, aes(x = date, y = value)) +
@@ -375,7 +375,7 @@ output_all_charts <- function() {
             theme_mastodon +
             scale_color_manual(values = colours) +
             labs(title = paste0("Age ", test.age, " leavers per month"), x = "Date", y = "CiC") +
-            coord_cartesian(xlim = c(as.Date("2016-01-01"), as.Date("2020-01-01"))))
+            coord_cartesian(xlim = c(min(dates), max(dates))))
   }
 }
 
