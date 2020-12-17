@@ -4,6 +4,9 @@ library(tidyquant)
 library(extrafont)
 library(ggplot2)
 library(ggthemes)
+library(survival)
+library(stringr)
+library(reshape2)
 source('src/helpers.R')
 
 actual_episodes_file <- ''
@@ -35,7 +38,7 @@ output_all_charts <- function() {
   projected_episodes$Birthday <- ymd(projected_episodes$Birthday)
   projected_episodes$Placement.Category <- substr(projected_episodes$Placement, 1, 1)
   
-  dates <- seq(as.Date("2015-01-01"), as.Date("2022-02-01"), by = "week")
+  dates <- seq(as.Date("2015-01-01"), as.Date("2025-02-01"), by = "week")
   placements <- (episodes %>% group_by(placement) %>% summarise(n = n()) %>% arrange(desc(n)))$placement
   placement_categories <- (episodes %>% group_by(placement_category) %>% summarise(n = n()) %>% arrange(desc(n)))$placement_category
   
@@ -163,12 +166,13 @@ output_all_charts <- function() {
     summarise(n = sum(n)) %>%
     summarise(n = median(n)) %>%
     ungroup %>%
-    mutate(Age.Group = factor(Age.Group, levels = c("< 1", "1-3", "4-6", "7-9", "10-12", "13-15", "16-17"))) %>%
+    mutate(Age.Group = factor(Age.Group, levels = rev(c("< 1", "1-3", "4-6", "7-9", "10-12", "13-15", "16-17")))) %>%
     ggplot(aes(Date, n, fill = Age.Group)) +
-    geom_bar(stat = "identity", position = "stack") +
+    geom_bar(stat = "identity", position = "fill") +
     scale_fill_manual(values = tableau_color_pal("Tableau 20")(20)) +
     theme_mastodon +
-    labs(x = "Date", y = "Count", title = "% of children in care by age group"))
+    labs(x = "Date", y = "Count", title = "% of children in care by age group") +
+    geom_vline(xintercept = project_from, color = "red", linetype = 2))
 
   for (test.age in 0:17) {
     projected <- data.frame(date = c(), lower.ci = c(), q1 = c(), median = c(), q3 = c(), upper.ci = c())
@@ -232,7 +236,7 @@ output_all_charts <- function() {
               median = quantile(n, probs = 0.5),
               q3 = quantile(n, probs = 0.75),
               upper.ci = quantile(n, probs = 0.975)) %>%
-    filter(date > as.Date("2016-12-01"))
+    filter(date > min(dates))
   
   leave_projected_ci <- join_leave_projected %>%
     mutate(Leave = floor_date(Leave, unit = "month")) %>%
@@ -244,21 +248,21 @@ output_all_charts <- function() {
               median = quantile(n, probs = 0.5),
               q3 = quantile(n, probs = 0.75),
               upper.ci = quantile(n, probs = 0.975)) %>%
-    filter(date > as.Date("2016-12-01"))
+    filter(date > min(dates))
   
   join_actuals <- join_leave_actual_summary %>%
     mutate(Join = floor_date(Join, unit = "month")) %>%
     group_by(Join) %>%
-    summarise(variable = "actual", value = n()) %>%
+    summarise(value = n()) %>%
     rename(date = Join) %>%
-    filter(date > as.Date("2016-01-01"))
+    filter(date > min(dates))
   
   leave_actuals <- join_leave_actual_summary %>%
     mutate(Leave = floor_date(Leave, unit = "month")) %>%
     group_by(Leave) %>%
-    summarise(variable = "actual", value = n()) %>%
+    summarise(value = n()) %>%
     rename(date = Leave) %>%
-    filter(date > as.Date("2016-01-01"))
+    filter(date > min(dates))
   
   net_actuals <- join_actuals %>%
     inner_join(leave_actuals, by = "date") %>%
@@ -266,9 +270,34 @@ output_all_charts <- function() {
            variable = variable.x) %>%
     dplyr::select(date, variable, value)
   
-  print(ggplot(rbind(join_actuals %>% mutate(variable = "Join"),
-               leave_actuals %>% mutate(variable = "Leave"),
-               net_actuals %>% mutate(variable = "Net")) %>%
+  join_projected <- join_leave_projected %>%
+    mutate(Join = floor_date(Join, unit = "month")) %>%
+    rename(date = Join) %>%
+    group_by(date, Simulation) %>%
+    summarise(n = n()) %>%
+    summarise(value = median(n)) %>%
+    filter(date > project_from)
+  
+  leave_projected <- join_leave_projected %>%
+    mutate(Leave = floor_date(Leave, unit = "month")) %>%
+    rename(date = Leave) %>%
+    group_by(date, Simulation) %>%
+    summarise(n = n()) %>%
+    summarise(value = median(n)) %>%
+    filter(date > project_from)
+  
+  net_projected <- join_projected %>%
+    inner_join(leave_projected, by = "date") %>%
+    mutate(value = value.x - value.y) %>%
+    dplyr::select(date, value)
+  
+  print(ggplot(rbind(join_actuals %>% mutate(variable = "Join") %>% filter(date < project_from),
+               leave_actuals %>% mutate(variable = "Leave") %>% filter(date < project_from),
+               net_actuals %>% mutate(variable = "Net") %>% filter(date < project_from),
+               join_projected %>% mutate(variable = "Join"),
+              leave_projected %>% mutate(variable = "Leave"),
+              net_projected %>% mutate(variable = "Net")
+               ) %>%
            mutate(variable = factor(variable, levels = c("Join", "Net", "Leave"))),
          aes(date, value, colour = variable)) +
     facet_grid(rows = vars(variable), scales = "free_y") +
@@ -276,8 +305,9 @@ output_all_charts <- function() {
     geom_ma(n = 12) +
     scale_colour_manual(values = tableau_color_pal("Tableau 20")(20)) +
     theme_mastodon +
-    labs(x = "Date", y = "Count", title = "Joiners, leavers & net growth + 12 period moving average") +
-      coord_cartesian(xlim = c(as.Date("2016-01-01"), as.Date("2020-01-01"))))
+    labs(x = "Date", y = "Count", title = "Monthly counts + 12 month moving average") +
+      coord_cartesian(xlim = c(min(dates), max(dates))) +
+      geom_vline(xintercept = project_from, color = "red", linetype = 2))
   
   print(ggplot() +
           geom_line(data = join_actuals, aes(x = date, y = value)) +
@@ -302,8 +332,6 @@ output_all_charts <- function() {
           coord_cartesian(xlim = c(min(dates), max(dates))))
   
   for (test.age in 0:17){
-    
-    test.age <- 9
     join_projected_ci <- join_leave_projected %>%
       filter(Join.Age == test.age) %>%
       mutate(Join = floor_date(Join, unit = "month")) %>%
@@ -342,9 +370,41 @@ output_all_charts <- function() {
       summarise(variable = "actual", value = n()) %>%
       rename(date = Leave)
     
+    net_actuals <- join_actuals %>%
+      inner_join(leave_actuals, by = "date") %>%
+      mutate(value = value.x - value.y,
+             variable = variable.x) %>%
+      dplyr::select(date, variable, value)
+    
+    join_projected <- join_leave_projected %>%
+      filter(Join.Age == test.age) %>%
+      mutate(Join = floor_date(Join, unit = "month")) %>%
+      rename(date = Join) %>%
+      group_by(date, Simulation) %>%
+      summarise(n = n()) %>%
+      summarise(value = median(n)) %>%
+      filter(date > project_from)
+    
+    leave_projected <- join_leave_projected %>%
+      filter(Leave.Age == test.age) %>%
+      mutate(Leave = floor_date(Leave, unit = "month")) %>%
+      rename(date = Leave) %>%
+      group_by(date, Simulation) %>%
+      summarise(n = n()) %>%
+      summarise(value = median(n)) %>%
+      filter(date > project_from)
+    
+    net_projected <- join_projected %>%
+      inner_join(leave_projected, by = "date") %>%
+      mutate(value = value.x - value.y) %>%
+      dplyr::select(date, value)
+    
     print(ggplot(rbind(join_actuals %>% mutate(variable = "Join"),
                  leave_actuals %>% mutate(variable = "Leave"),
-                 net_actuals %>% mutate(variable = "Net")) %>%
+                 net_actuals %>% mutate(variable = "Net"),
+                 join_projected %>% mutate(variable = "Join"),
+                 leave_projected %>% mutate(variable = "Leave"),
+                 net_projected %>% mutate(variable = "Net")) %>%
              mutate(variable = factor(variable, levels = c("Join", "Net", "Leave"))),
            aes(date, value, colour = variable)) +
       facet_grid(rows = vars(variable), scales = "free_y") +
@@ -353,7 +413,8 @@ output_all_charts <- function() {
       scale_colour_manual(values = tableau_color_pal("Tableau 20")(20)) +
       theme_mastodon +
       labs(x = "Date", y = "Count", title = "Joiners, leavers & net growth + 12 period moving average") +
-      coord_cartesian(xlim = c(min(dates), max(dates))))
+      coord_cartesian(xlim = c(min(dates), max(dates))) +
+        geom_vline(xintercept = project_from, color = "red", linetype = 2))
     
     print(ggplot() +
             geom_line(data = join_actuals, aes(x = date, y = value)) +
@@ -399,6 +460,48 @@ plot_summary <- function(project_from, project_yrs) {
   projected_episodes$End <- ymd(projected_episodes$End)
   projected_episodes$Birthday <- ymd(projected_episodes$Birthday)
   projected_episodes <- projected_episodes %>% group_by(Simulation, ID) %>% mutate(Min.Start = min(Start), Max.End = max(End)) %>% ungroup
+  
+  historic_episodes <- projected_episodes %>%
+    filter(Simulation == 1 & Provenance %in% c("H")) %>%
+    group_by(ID) %>%
+    slice(1) %>%
+    select(Simulation, ID, Period.Start, Period.End, Admission.Age, Birthday, Provenance)
+  
+  historic_episodes <- historic_episodes %>%
+    mutate(Event = if_else(Period.End >= project_from, 0, 1)) %>%
+    mutate(Measured.Duration = day_diff(Period.Start, min(Period.End, project_from)),
+           Model.Duration = day_diff(Period.Start, Period.End))
+  
+  fit <- survfit(Surv(Measured.Duration, Event) ~ Admission.Age, data = historic_episodes)
+  survival_quantiles <- stats::quantile(fit, probs = seq(0,1,length.out = 101))
+  imputed <- impute.quantiles(survival_quantiles$quantile)
+  imputed$age <- 0:17
+  
+  imputed_quantiles <- melt(imputed, id.vars = c("age")) %>%
+    mutate(Admission.Age = factor(age),
+           Group = paste(age),
+           variable = as.numeric(variable) / 100.0)
+  
+  all_episodes <- projected_episodes %>%
+    group_by(ID) %>%
+    slice(1) %>%
+    select(Simulation, ID, Period.Start, Period.End, Admission.Age, Birthday, Provenance) %>%
+    mutate(Model.Duration = day_diff(Period.Start, Period.End))
+  
+  all_quantiles <- all_episodes %>%
+    group_by(Admission.Age, Simulation) %>%
+    mutate(quantile = ecdf(Model.Duration)(Model.Duration)) %>%
+    arrange(Model.Duration) %>%
+    mutate(Group = paste(Simulation, Admission.Age))
+  
+  print(ggplot() +
+          geom_line(data = all_quantiles, aes(Model.Duration, quantile, group = Group), alpha = 0.05) +
+          geom_line(data = imputed_quantiles, aes(value, variable, group = Group), linetype = 3, colour = "red") +
+          facet_wrap(vars(Admission.Age), ncol = 6, scales = "free_x") +
+          theme_mastodon +
+          labs(x = "Duration in care", y = "Quantile", title = "Comparison of estimated and modelled duration in care (static bag, jitter 1x, training subset)"))
+  
+  
   projected_periods <- projected_episodes %>% group_by(Simulation, ID) %>% summarise(Min.Start = min(Start), Max.End = max(End)) %>% ungroup
   dates <- seq(as.Date("2011-01-01"), project_from + years(project_yrs), by = "week")
   colours = tableau_color_pal("Tableau 20")(20)
@@ -796,58 +899,11 @@ projected_episodes$Admission.Age <- factor(projected_episodes$Admission.Age)
 
 ## Attempt 1
 
-historic_episodes <- projected_episodes %>%
-  filter(Simulation == 1 && Provenance %in% c("H", "P")) %>%
-  group_by(ID) %>%
-  slice(1) %>%
-  select(Simulation, ID, Period.Start, Period.End, Admission.Age, Birthday, Provenance)
-
-historic_episodes <- historic_episodes %>%
-  mutate(Event = if_else(Period.End >= project_from, 0, 1)) %>%
-  mutate(Measured.Duration = day_diff(Period.Start, min(Period.End, project_from)),
-         Model.Duration = day_diff(Period.Start, Period.End))
-
-impute.quantiles <- function(df) {
-  res <- df %>% as.data.frame %>% mutate(`100` = coalesce(`100`, 18:1 * 365))
-  res <- t(na.approx(t(res))) %>% as.data.frame
-  res <- cbind(age = str_replace(rownames(df),"admission_age=", ""), res)
-  colnames(res) <- c("age", 0:100)
-  res
-}
-
-fit <- survfit(Surv(Measured.Duration, Event) ~ Admission.Age, data = historic_episodes)
-survival_quantiles <- stats::quantile(fit, probs = seq(0,1,length.out = 101))
-imputed <- impute.quantiles(survival_quantiles$quantile)
-imputed$age <- 0:17
-
-imputed_quantiles <- melt(imputed, id.vars = c("age")) %>%
-  mutate(Admission.Age = factor(age),
-         Group = paste(age),
-         variable = as.numeric(variable) / 100.0)
-
-ggplot() +
-  geom_line(data = imputed_quantiles, aes(value, variable, group = Admission.Age), linetype = 2, colour = "orange") +
-  facet_wrap(vars(Admission.Age))
-
-all_episodes <- projected_episodes %>%
-  group_by(ID) %>%
-  slice(1) %>%
-  select(Simulation, ID, Period.Start, Period.End, Admission.Age, Birthday, Provenance) %>%
-  mutate(Model.Duration = day_diff(Period.Start, Period.End))
-
-all_quantiles <- all_episodes %>%
-  group_by(Admission.Age, Simulation) %>%
-  mutate(quantile = ecdf(Model.Duration)(Model.Duration)) %>%
-  arrange(Model.Duration) %>%
-  mutate(Group = paste(Simulation, Admission.Age))
 
 
-ggplot() +
-  geom_line(data = all_quantiles, aes(Model.Duration, quantile, group = Group), alpha = 0.05) +
-  geom_line(data = imputed_quantiles, aes(value, variable, group = Group), linetype = 3, colour = "red") +
-  facet_wrap(vars(Admission.Age), ncol = 6, scales = "free_x") +
-  theme_mastodon +
-  labs(x = "Duration in care", y = "Quantile", title = "Comparison of estimated and modelled duration in care")
+## Attempt 1.5
+
+## Separate 
 
 all_quantiles %>%
   mutate(Short.Period = Model.Duration < 250) %>%
