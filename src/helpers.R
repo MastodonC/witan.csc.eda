@@ -63,6 +63,10 @@ year_diff <- function(start, stop) {
   as.numeric(difftime(stop, start, units = "days")) %/% 365.25
 }
 
+month_diff <- function(start, stop) {
+  as.numeric(difftime(stop, start, units = "days")) %/% 30
+}
+
 day_diff <- function(start, stop) {
   as.numeric(difftime(stop, start, units = "days"))
 }
@@ -78,5 +82,20 @@ theme_mastodon <- theme(plot.title = element_text(family = "Open Sans SemiBold",
                         axis.title.x = element_text(margin = margin(15,0,0,0)),
                         axis.title.y = element_text(margin = margin(0,10,0,0)),
                         plot.margin = margin(10,20,10,10),
-                        panel.grid = element_line(color = "#eeeeee"))
+                        panel.grid = element_line(color = "#FFFFFF"))
+
+impute.quantiles <- function(df) {
+  res <- df %>% as.data.frame %>% mutate(`100` = coalesce(`100`, 18:1 * 365))
+  res <- t(na.approx(t(res))) %>% as.data.frame
+  res <- cbind(age = str_replace(rownames(df),"admission_age=", ""), res)
+  colnames(res) <- c("age", 0:100)
+  res
+}
+
+assoc.period.id <- function(episodes) {
+  episodes <- episodes %>% arrange(ID, report_date)
+  new_periods <- coalesce(episodes$ID == lag(episodes$ID) & episodes$report_date > lag(episodes$ceased), FALSE)
+  episodes$period_id <- paste0(episodes$ID, "-", ave(ifelse(new_periods, 1.0, 0.0), episodes$ID, FUN = cumsum) + 1)
+  episodes
+}
 
