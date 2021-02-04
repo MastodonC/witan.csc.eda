@@ -1,0 +1,135 @@
+---
+title: "CiC Rejection Sampling"
+output: html_notebook
+---
+
+This workbook is responsible for creating a target duration distribution for each join age.
+
+We use this distribution for calculating rejection sampling proportions and also for comparing our outputs against.
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+library(lubridate)
+library(survival)
+library(survminer)
+library(stringr)
+library(reshape2)
+library(zoo)
+library(dplyr)
+```
+
+```{r}
+source("helpers.R")
+```
+
+
+
+```{r}
+input_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2020-12-04/suffolk-scrubbed-episodes-20201203.csv"
+output_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2020-12-04/target-distribution.csv"
+```
+
+
+```{r}
+data <- read.csv(input_csv)
+data$report_date <- ymd(data$report_date)
+data$ceased <- ymd(data$ceased)
+
+# Creates data that will be fed to the survival curve fitting model.
+# We only know which month each child's birthday falls in, so we create a record
+# for each day of this month.
+
+# We also add noise here, although I think perhaps this should be removed.
+
+survival_data <- data %>%
+  group_by(period_id) %>%
+  dplyr::summarise(period_start = min(ymd(report_date)),
+            period_end = max(ymd(ceased)),
+            DOB = ymd(paste0(DOB[1], "-01"))) %>%
+  mutate(event = !is.na(period_end),
+         duration = if_else(event,
+                            day_diff(period_start, period_end),
+                            day_diff(period_start, max(period_start, period_end, na.rm = TRUE)))) %>%
+  full_join(data.frame(birthday_dom = rep(1:31,1)), by = character()) %>%
+  mutate(birthday = DOB + days(birthday_dom),
+         join_age = as.factor(clamp(year_diff(birthday, period_start), 0, 17)),
+         max_duration = day_diff(period_start, birthday + years(18) - days(1)),
+         duration = if_else(duration > max_duration, max_duration, duration)
+         ) %>%
+  filter(month(birthday) == month(DOB) & birthday <= period_start) %>%
+  as.data.frame
+
+fit <- survfit(Surv(duration, event) ~ join_age, data = survival_data)
+quantiles <- reshape2::melt(stats::quantile(fit, probs = seq(0,0.999,length.out = 1000))$quantile) %>%
+  mutate(join_age = as.integer(str_replace(Var1, "join_age=", ""))) %>%
+  select(-1) %>%
+  as.data.frame
+colnames(quantiles) <- c("quantile", "duration", "admission_age")
+
+quantiles <- dcast(admission_age ~ quantile, data = quantiles, drop = FALSE, value.var = "duration")
+
+quantiles <- cbind(quantiles, data.frame(`100` = apply(quantiles, 1, max, na.rm = TRUE)))
+quantiles <- as.data.frame(t(na.approx(t(quantiles))))
+colnames(quantiles) <- c("admission_age", seq(0, 1000, length.out = ncol(quantiles) - 1))
+quantiles <- melt(quantiles, id.vars = "admission_age") %>%
+  mutate(quantile = as.numeric(variable) / 1000.0,
+         duration = value) %>%
+  select(admission_age, duration, quantile) %>%
+  group_by(admission_age, duration) %>%
+  summarise(quantile = max(quantile))
+
+target_distribution <- quantiles %>%
+  mutate(duration_group = duration %/% 7) %>%
+  group_by(admission_age, duration_group) %>%
+  summarise(quantile = max(quantile)) %>%
+  arrange(admission_age, duration_group) %>%
+  mutate(density = quantile - coalesce(lag(quantile), 0)) %>%
+  mutate(density = density * 100 / sum(density))
+
+write.csv(target_distribution, file = output_csv, row.names = FALSE)
+```
+
+```{r}
+ggplot(target_distribution, aes(duration_group, density)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(vars(admission_age), scales = "free_y")
+
+for (age in 0:17) {
+  print(ggplot(target_distribution %>% filter(admission_age == age), aes(duration_group, density)) +
+    geom_bar(stat = "identity") +
+    facet_wrap(vars(admission_age), scales = "free_y"))
+}
+```
+This is our target distribution. How did we do at matching it?
+
+```{r}
+episodes_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2020-12-04/scc-episodes-2019-08-13-rewind-1yr-train-3yr-project-5yr-runs-100-seed-42-universe.csv"
+```
+
+```{r}
+episodes <- read.csv(episodes_csv)
+
+simulated_cdf <- episodes %>%
+  filter(Provenance == "S") %>%
+  group_by(ID) %>%
+  slice(1) %>%
+  rename(admission_age = Admission.Age, duration = Period.Duration, simulation = Simulation) %>%
+  group_by(simulation, admission_age) %>%
+  mutate(duration_group = duration %/% 7) %>%
+  mutate(quantile = ecdf(duration_group)(duration_group)) %>%
+  dplyr::select(simulation, admission_age, duration_group, quantile)
+
+ggplot(simulated_cdf, aes(duration_group, quantile)) +
+  geom_line(aes(group = simulation), alpha = 0.01) +
+  geom_line(data = target_distribution, color = "red", linetype = 2) +
+  facet_wrap(vars(admission_age))
+
+for (age in 0:17) {
+  print(ggplot(simulated_cdf %>% filter(admission_age == age), aes(duration_group, quantile)) +
+    geom_line(aes(group = simulation), alpha = 0.1) +
+    geom_line(data = target_distribution %>% filter(admission_age == age), color = "red", linetype = 2))
+}
+
+```
+
