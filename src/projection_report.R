@@ -5,11 +5,11 @@ library(extrafont)
 library(ggplot2)
 library(grid)
 library(ggthemes)
-source('helpers.R')
+source('~/code/witan.csc.eda/src/helpers.R')
 ?source
-projected_episodes <- read.csv(projected_episodes_file)
-actual_episodes_file <- ''
+actual_episodes_file <- '~/code/witan.cic/data/episodes.scrubbed.csv'
 projected_episodes_file <- 'P:\\scc-episodes-2019-08-13-rewind-1yr-train-3yr-project-5yr-runs-100-seed-42-20201203-no-reject-sampling.csv'
+projected_episodes <- read.csv(projected_episodes_file)
 output_file <- 'P:\\output-1'
 output_file_joiners <- 'P:\\output-2'
 project_from <-as.Date("2019-08-13")
@@ -19,8 +19,8 @@ dev.off()
 view(projected_episodes)
 
 font_import()
-loadfonts()
 y
+loadfonts()
 output_all_charts <- function() {
   set.seed(5)
   episodes <- read.csv(actual_episodes_file, header = TRUE, stringsAsFactors = FALSE, na.strings ="NA")
