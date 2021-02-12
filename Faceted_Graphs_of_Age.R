@@ -7,17 +7,7 @@ periods <- projected_episodes %>%
   ungroup
 
 periods$Period.End <- ymd(periods$Period.End)
-
-i=mean(periods$Admission.Age)
-
-df<-data.frame(periods$Admission.Age,periods$Period.Duration)
-
-df1<-aggregate(.~periods$Admission.Age,data = ,mean)
-i=max(df1$periods.Period.Duration)
-i
-df2<-aggregate(.~periods$Admission.Age,data = df,median)
-j=max(df2$periods.Period.Duration)
-j
+i=0
 
 chart_data <- periods %>%
   mutate(sample_label = year(Period.End - months(7) - days(12)) - 2019) %>%
@@ -29,19 +19,30 @@ chart_data <- periods %>%
   mutate(cdf = ecdf(Period.Duration)(Period.Duration)) %>%
   ungroup
 
-pdf(output_file_test)
+output_file <- 'P:\\output-1.pdf'
+pdf(output_file)
+print(chart_data %>%
+        filter(chart_data$Period.Duration<=2000)%>%
+        ggplot(aes(Period.Duration, cdf, group = sample_label, colour = sample_label)) +
+        facet_grid(sample_label~Admission.Age,scales='free')+
+        theme(panel.grid.major = element_line(size = 0.1, linetype = "solid",colour = "darkgrey"))+
+        theme(panel.grid.minor = element_line(size = 0.1, linetype = "solid",colour = "darkgrey"))+
+        theme(axis.text.x = element_text(size = 3,angle=90,hjust = 1),
+              axis.text.y =element_text(size = 3))+
+        geom_vline(data = chart_data %>% group_by(sample_label,Admission.Age) %>% summarise(intercept = mean(Period.Duration)),
+                   aes(xintercept=intercept,colour ="mean")) +
+        geom_vline(data = chart_data %>% group_by(sample_label,Admission.Age) %>% summarise(intercept = median(Period.Duration)),
+                   aes(xintercept=intercept,colour ="median")) +
+        geom_line() +
+        scale_color_manual(values = tableau_color_pal("Tableau 20")(20)) +
+        labs(title = "CDF for joiners") +
+        theme_mastodon)
 
-ggplot(chart_data, aes(Period.Duration, cdf, group = sample_label, colour = sample_label)) +
-  facet_grid(sample_label~Admission.Age,scales = 'free')+
-  theme(panel.grid.major = element_line(size = 0.1, linetype = "solid",colour = "darkgrey"))+
-  theme(panel.grid.minor = element_line(size = 0.1, linetype = "solid",colour = "darkgrey"))+
-  geom_vline(data = chart_data %>% group_by(sample_label, Admission.Age) %>% summarise(intercept = mean(Period.Duration)),
-             aes(xintercept=intercept,colour ="mean")) +
-  geom_vline(data = chart_data %>% group_by(sample_label, Admission.Age) %>% summarise(intercept = median(Period.Duration)),
-             aes(xintercept=intercept,colour ="median")) +
-  geom_line() +
-  scale_color_manual(values = tableau_color_pal("Tableau 20")(20)) +
-  labs(title = "CDF for joiners") +
-  theme_mastodon 
+dev.off()
 
-dev.off() 
+
+
+new_table<-chart_data %>% group_by(sample_label,Admission.Age) %>% summarise(intercept = mean(Period.Duration))
+
+max(new_table$intercept)
+
