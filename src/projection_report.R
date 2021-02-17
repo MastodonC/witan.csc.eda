@@ -12,10 +12,11 @@ actual_episodes_file <- ''
 projected_episodes_file <- 'P:\\scc-episodes-2019-08-13-rewind-1yr-train-3yr-project-5yr-runs-100-seed-42-20201203-no-reject-sampling.csv'
 output_file <- 'P:\\output-1'
 output_file_joiners <- 'P:\\output-2'
-project_from <- as.Date("2019-08-13")
+project_from <-as.Date("2019-08-13")
 output_file_layercake <- ''
 project_yrs <- 5
 dev.off()
+view(projected_episodes)
 
 font_import()
 loadfonts()
@@ -880,8 +881,6 @@ periods %>%
   labs(title = (i)) +
   theme_mastodon +
   coord_cartesian(xlim=c(0,(18-i)*365),ylim=c(0,1))
-range(periods)
-j=-5
 
 pdf(output_file_test)
 for (i in 0:17){
@@ -906,5 +905,5 @@ for (i in 0:17){
     i=i+1
 }
 dev.off()
-output_file_test <- 'P:\\output-4'
+output_file_test <- 'P:\\output-5.pdf'
 

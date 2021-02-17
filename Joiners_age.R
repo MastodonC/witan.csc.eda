@@ -53,7 +53,7 @@ chart_data <- periods %>%
   # mutate(sample_label = if_else(sample_label < 0, "Historic", "Projected")) %>%
   mutate(sample_label = factor(paste(sample_label), levels = as.character(-5:4))) %>%
   # mutate(Period.Duration = Period.Duration + rnorm(1, sd = 7)) %>%
-  group_by(sample_label) %>%
+  group_by(sample_label, Admission.Age) %>%
   mutate(cdf = ecdf(Period.Duration)(Period.Duration)) %>%
   ungroup
 
@@ -67,7 +67,7 @@ ggplot(chart_data, aes(Period.Duration, cdf, group = sample_label, colour = samp
              aes(xintercept=intercept,colour ="median")) +
   geom_line() +
   scale_color_manual(values = tableau_color_pal("Tableau 20")(20)) +
-  labs(title = 'CDF for joiners') +
+  labs(title = "CDF for joiners") +
   coord_cartesian(xlim=c(0,750),ylim=c(0,1)) +
   theme_mastodon
 dev.off()
