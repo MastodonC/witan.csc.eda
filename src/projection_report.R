@@ -9,14 +9,10 @@ library(stringr)
 library(reshape2)
 source('src/helpers.R')
 
-actual_episodes_file <- ''
-projected_episodes_file <- ''
-output_file <- ''
-output_file_joiners <- ''
-project_from <- as.Date("2019-08-13")
-output_file_layercake <- ''
+project_from <- as.Date("2020-03-31")
 project_yrs <- 5
 train_from <- project_from - years(3)
+projection_end <- project_from + years(project_yrs)
 
 font_import()
 loadfonts()
@@ -38,7 +34,7 @@ output_all_charts <- function() {
   projected_episodes$Birthday <- ymd(projected_episodes$Birthday)
   projected_episodes$Placement.Category <- substr(projected_episodes$Placement, 1, 1)
   
-  dates <- seq(as.Date("2015-01-01"), as.Date("2025-02-01"), by = "week")
+  dates <- seq(as.Date("2015-01-01"), projection_end, by = "week")
   placements <- (episodes %>% group_by(placement) %>% summarise(n = n()) %>% arrange(desc(n)))$placement
   placement_categories <- (episodes %>% group_by(placement_category) %>% summarise(n = n()) %>% arrange(desc(n)))$placement_category
   
@@ -458,6 +454,8 @@ plot_summary <- function(project_from, project_yrs) {
   projected_episodes <- read.csv(projected_episodes_file, header = TRUE, stringsAsFactors = FALSE, na.strings ="")
   projected_episodes$Start <- ymd(projected_episodes$Start)
   projected_episodes$End <- ymd(projected_episodes$End)
+  projected_episodes$Period.Start <- ymd(projected_episodes$Period.Start)
+  projected_episodes$Period.End <- ymd(projected_episodes$Period.End)
   projected_episodes$Birthday <- ymd(projected_episodes$Birthday)
   projected_episodes <- projected_episodes %>% group_by(Simulation, ID) %>% mutate(Min.Start = min(Start), Max.End = max(End)) %>% ungroup
   
@@ -484,6 +482,7 @@ plot_summary <- function(project_from, project_yrs) {
   
   all_episodes <- projected_episodes %>%
     group_by(ID) %>%
+    filter(Provenance == "S") %>%
     slice(1) %>%
     select(Simulation, ID, Period.Start, Period.End, Admission.Age, Birthday, Provenance) %>%
     mutate(Model.Duration = day_diff(Period.Start, Period.End))
@@ -499,7 +498,7 @@ plot_summary <- function(project_from, project_yrs) {
           geom_line(data = imputed_quantiles, aes(value, variable, group = Group), linetype = 3, colour = "red") +
           facet_wrap(vars(Admission.Age), ncol = 6, scales = "free_x") +
           theme_mastodon +
-          labs(x = "Duration in care", y = "Quantile", title = "Comparison of estimated and modelled duration in care (static bag, jitter 1x, training subset)"))
+          labs(x = "Duration in care", y = "Quantile", title = "Comparison of estimated and modelled duration in care"))
   
   
   projected_periods <- projected_episodes %>% group_by(Simulation, ID) %>% summarise(Min.Start = min(Start), Max.End = max(End)) %>% ungroup
@@ -933,7 +932,7 @@ all_quantiles <- all_episodes %>%
   group_by(Leave.Year) %>%
   mutate(quantile = ecdf(Model.Duration)(Model.Duration)) %>%
   arrange(Model.Duration) %>%
-  mutate(Group = paste(Leave.Year)) %>%
+  mutate(Group = paste(Leave.Year))
   
 
 ggplot() +
