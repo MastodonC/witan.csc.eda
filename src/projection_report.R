@@ -9,7 +9,12 @@ library(stringr)
 library(reshape2)
 source('src/helpers.R')
 
+actual_episodes_file <- ''
+projected_episodes_file <- ''
+output_file <- ''
+output_file_joiners <- ''
 project_from <- as.Date("2020-03-31")
+output_file_layercake <- ''
 project_yrs <- 5
 train_from <- project_from - years(3)
 projection_end <- project_from + years(project_yrs)
