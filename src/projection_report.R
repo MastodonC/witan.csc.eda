@@ -8,7 +8,7 @@ library(survival)
 library(stringr)
 library(reshape2)
 source('src/helpers.R')
-
+variable=variable.x
 actual_episodes_file <- 'P:\\suffolk-scrubbed-episodes-20201203.csv'
 projected_episodes_file <- 'P:\\scc-episodes-2020-03-31-rewind-0yr-train-2yr-project-5yr-runs-100-seed-42-5-trended.csv'
 output_file <- 'output-1.pdf'
@@ -111,7 +111,8 @@ loadfonts(device = 'pdf')
             labs(title = paste0(test.placement), x = "Date", y = "CiC"))
   }
   
-  counts_by_age_simulation <- data.frame(Age = c(), Simulation = c(), n = c(), Date = c())
+  
+   counts_by_age_simulation <- data.frame(Age = c(), Simulation = c(), n = c(), Date = c())
   for (date in dates) {
     date <- as.Date(date)
   counts_by_age_simulation <- rbind(counts_by_age_simulation,
@@ -224,21 +225,20 @@ loadfonts(device = 'pdf')
   join_actuals <- join_leave_actual_summary %>%
     mutate(Join = floor_date(Join, unit = "month")) %>%
     group_by(Join) %>%
-    summarise(value = n()) %>%
+    summarise(variable="actual",value = n()) %>%
     rename(date = Join) %>%
     filter(date > min(dates))
   
   leave_actuals <- join_leave_actual_summary %>%
     mutate(Leave = floor_date(Leave, unit = "month")) %>%
     group_by(Leave) %>%
-    summarise(value = n()) %>%
+    summarise(variable="actual", value = n()) %>%
     rename(date = Leave) %>%
     filter(date > min(dates))
   
   net_actuals <- join_actuals %>%
     inner_join(leave_actuals, by = "date") %>%
-    mutate(value = value.x - value.y,
-           variable = variable.x) %>%
+    mutate(value = value.x - value.y) %>%
     dplyr::select(date, variable, value)
   
   join_projected <- join_leave_projected %>%
@@ -302,7 +302,7 @@ loadfonts(device = 'pdf')
           labs(title = "Leavers per month", x = "Date", y = "CiC") +
           coord_cartesian(xlim = c(min(dates), max(dates))))
   
-  for (test.age in 0:17){
+   for (test.age in 0:17){
     join_projected_ci <- join_leave_projected %>%
       filter(Join.Age == test.age) %>%
       mutate(Join = floor_date(Join, unit = "month")) %>%
@@ -411,7 +411,7 @@ loadfonts(device = 'pdf')
   }
 }
 
-pdf(output_file, fonts = c("Open Sans", "Open Sans SemiBold"), paper = "a4r")
+pdf(output_file, fonts = "Arial")
 output_all_charts()
 dev.off()
 embed_fonts(file = output_file, outfile = output_file)
