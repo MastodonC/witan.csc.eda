@@ -9,10 +9,10 @@ library(stringr)
 library(reshape2)
 source('src/helpers.R')
 
-actual_episodes_file <- ''
-projected_episodes_file <- ''
-output_file <- ''
-output_file_joiners <- ''
+actual_episodes_file <- 'P:\\suffolk-scrubbed-episodes-20201203.csv'
+projected_episodes_file <- 'P:\\scc-episodes-2020-03-31-rewind-0yr-train-2yr-project-5yr-runs-100-seed-42-5-trended.csv'
+output_file <- 'output-1.pdf'
+output_file_joiners <- 'output-2.pdf'
 project_from <- as.Date("2020-03-31")
 output_file_layercake <- ''
 project_yrs <- 5
@@ -20,9 +20,10 @@ train_from <- project_from - years(3)
 projection_end <- project_from + years(project_yrs)
 
 font_import()
-loadfonts()
-
-output_all_charts <- function() {
+y
+loadfonts(device = 'pdf')
+ 
+ output_all_charts <- function() {
   set.seed(5)
   episodes <- read.csv(actual_episodes_file, header = TRUE, stringsAsFactors = FALSE, na.strings ="NA")
   episodes$report_date <- ymd(episodes$report_date)
@@ -75,38 +76,7 @@ output_all_charts <- function() {
           scale_color_manual(values = colours) +
           labs(title = "CiC", x = "Date", y = "CiC"))
   
-  for (test.placement in placement_categories) {
-    projected <- data.frame(date = c(), lower.ci = c(), q1 = c(), median = c(), q3 = c(), upper.ci = c())
-    for (date in dates) {
-      counts_by_simulation <- projected_episodes %>%
-        filter(Start <= date & (is.na(End) | End >= date)) %>%
-        filter(Placement.Category == test.placement) %>%
-        group_by(Simulation) %>%
-        summarise(n = n())
-      quants <- quantile(counts_by_simulation$n, probs = c(0.05, 0.25, 0.5, 0.75, 0.975))
-      projected <- rbind(projected, data.frame(date = c(date), lower.ci = c(quants[1]), q1 = c(quants[2]), median = c(quants[3]), q3 = c(quants[4]), upper.ci = c(quants[5])))
-    }
-    projected$date <- as.Date(projected$date)
-    projected <- projected %>% filter(lower.ci != upper.ci)
-    actuals <- data.frame(date = c(), variable = c(), value = c())
-    for (date in dates[dates < end_date]) {
-      counts <- episodes %>%
-        filter(report_date <= date & (is.na(ceased) | ceased > date)) %>%
-        filter(placement_category == test.placement) %>%
-        summarise(n = n())
-      actuals <- rbind(actuals, data.frame(date = c(date), variable = c("actual"), value = c(counts[[1]])))
-    }
-    actuals$date <- as.Date(actuals$date)
-    print(ggplot() +
-            geom_line(data = actuals, aes(x = date, y = value)) +
-            geom_line(data = projected, aes(x = date, y = median), linetype = 2) +
-            geom_ribbon(data = projected, aes(x = date, ymin = lower.ci, ymax = upper.ci), fill = "gray", alpha = 0.3) +
-            geom_ribbon(data = projected, aes(x = date, ymin = q1, ymax = q3), fill = "gray", alpha = 0.3) +
-            geom_vline(xintercept = train_from, color = "red", linetype = 2) +
-            theme_mastodon +
-            scale_color_manual(values = colours) +
-            labs(title = paste0(test.placement), x = "Date", y = "CiC"))
-  }
+
   
   for (test.placement in placements) {
     projected <- data.frame(date = c(), lower.ci = c(), q1 = c(), median = c(), q3 = c(), upper.ci = c())
@@ -445,6 +415,9 @@ pdf(output_file, fonts = c("Open Sans", "Open Sans SemiBold"), paper = "a4r")
 output_all_charts()
 dev.off()
 embed_fonts(file = output_file, outfile = output_file)
+
+
+Sys.setenv(R_GSCMD="C:/Program Files/gs/gs9.53.3/bin/gswin64c.exe")
 
 elapsed_months <- function(end_date, start_date) {
   ed <- as.POSIXlt(end_date)
