@@ -5,7 +5,7 @@ library(tidyverse)
 i="3549-1"
 df <- projected_episodes%>%
   filter(ID==i)
-output_file_test <- 'P:\\output-5.pdf'
+output_file_test <- 'output-5.pdf'
 pdf(output_file_test)
 ggplot(df, aes(reorder(Simulation,Period.Duration), Period.Duration))+
   geom_bar(stat='identity',aes(fill=Placement),width=0.5)+
