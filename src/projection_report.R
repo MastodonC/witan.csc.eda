@@ -8,7 +8,7 @@ library(survival)
 library(stringr)
 library(reshape2)
 source('src/helpers.R')
-variable=variable.x
+
 actual_episodes_file <- 'P:\\suffolk-scrubbed-episodes-20201203.csv'
 projected_episodes_file <- 'P:\\scc-episodes-2020-03-31-rewind-0yr-train-2yr-project-5yr-runs-100-seed-42-5-trended.csv'
 output_file <- 'output-1.pdf'
