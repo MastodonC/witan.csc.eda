@@ -71,12 +71,13 @@ day_diff <- function(start, stop) {
   as.numeric(difftime(stop, start, units = "days"))
 }
 
-theme_mastodon <- theme(plot.title = element_text(family = "Open Sans SemiBold",
+
+theme_mastodon <- theme(plot.title = element_text(
                                                   hjust = 0.5, size = 20,
                                                   margin = margin(0,0,15,0)),
-                        axis.title = element_text(family = "Open Sans SemiBold",
+                        axis.title = element_text(
                                                   hjust = 0.5, size = 16),
-                        axis.text = element_text(family = "Open Sans",
+                        axis.text = element_text(
                                                  hjust = 0.5, size = 10),
                         axis.text.x = element_text(angle = -45),
                         axis.title.x = element_text(margin = margin(15,0,0,0)),

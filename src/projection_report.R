@@ -7,6 +7,7 @@ library(ggthemes)
 library(survival)
 library(stringr)
 library(reshape2)
+library(grid)
 source('src/helpers.R')
 
 actual_episodes_file <- 'P:\\suffolk-scrubbed-episodes-20201203.csv'
@@ -24,11 +25,12 @@ y
 loadfonts(device = 'pdf')
  
  output_all_charts <- function() {
+
   set.seed(5)
   episodes <- read.csv(actual_episodes_file, header = TRUE, stringsAsFactors = FALSE, na.strings ="NA")
   episodes$report_date <- ymd(episodes$report_date)
   episodes$ceased <- ymd(episodes$ceased)
-  end_date <- max(c(episodes$report_date), na.rm = TRUE)
+  end_date <- max(c(episodes$ceased, episodes$report_date), na.rm = TRUE)
   birthdays <- episodes %>% group_by(ID) %>% summarise(birthday = imputed_birthday(DOB[1], min(report_date), coalesce(max(ceased), end_date)))
   episodes <- episodes %>% inner_join(birthdays)
   episodes <- episodes %>% group_by(phase_id) %>% mutate(admission_age = year_diff(min(birthday), min(report_date))) %>% ungroup
@@ -40,7 +42,9 @@ loadfonts(device = 'pdf')
   projected_episodes$Birthday <- ymd(projected_episodes$Birthday)
   projected_episodes$Placement.Category <- substr(projected_episodes$Placement, 1, 1)
   
+
   dates <- seq(as.Date("2015-01-01"), projection_end, by = "week")
+
   placements <- (episodes %>% group_by(placement) %>% summarise(n = n()) %>% arrange(desc(n)))$placement
   placement_categories <- (episodes %>% group_by(placement_category) %>% summarise(n = n()) %>% arrange(desc(n)))$placement_category
   
@@ -59,7 +63,9 @@ loadfonts(device = 'pdf')
   projected$date <- as.Date(projected$date)
   projected <- projected %>% filter(lower.ci != upper.ci)
   actuals <- data.frame(date = c(), variable = c(), value = c())
+
   for (date in dates[dates < end_date]) {
+
     counts <- episodes %>%
       filter(report_date <= date & (is.na(ceased) | ceased > date)) %>%
       summarise(n = n())
@@ -76,8 +82,6 @@ loadfonts(device = 'pdf')
           scale_color_manual(values = colours) +
           labs(title = "CiC", x = "Date", y = "CiC"))
   
-
-  
   for (test.placement in placements) {
     projected <- data.frame(date = c(), lower.ci = c(), q1 = c(), median = c(), q3 = c(), upper.ci = c())
     for (date in dates) {
@@ -92,7 +96,9 @@ loadfonts(device = 'pdf')
     projected$date <- as.Date(projected$date)
     projected <- projected %>% filter(lower.ci != upper.ci)
     actuals <- data.frame(date = c(), variable = c(), value = c())
+    
     for (date in dates[dates < end_date]) {
+
       counts <- episodes %>%
         filter(report_date <= date & (is.na(ceased) | ceased > date)) %>%
         filter(placement == test.placement) %>%
@@ -110,8 +116,7 @@ loadfonts(device = 'pdf')
             scale_color_manual(values = colours) +
             labs(title = paste0(test.placement), x = "Date", y = "CiC"))
   }
-  
-  
+
    counts_by_age_simulation <- data.frame(Age = c(), Simulation = c(), n = c(), Date = c())
   for (date in dates) {
     date <- as.Date(date)
@@ -146,6 +151,7 @@ loadfonts(device = 'pdf')
     labs(x = "Date", y = "Count", title = "% of children in care by age group") +
     geom_vline(xintercept = project_from, color = "red", linetype = 2))
 
+
   for (test.age in 0:17) {
     projected <- data.frame(date = c(), lower.ci = c(), q1 = c(), median = c(), q3 = c(), upper.ci = c())
     for (date in dates) {
@@ -158,6 +164,7 @@ loadfonts(device = 'pdf')
     projected$date <- as.Date(projected$date)
     projected <- projected %>% filter(lower.ci != upper.ci)
     actuals <- data.frame(date = c(), variable = c(), value = c())
+
     for (date in dates[dates < end_date]) {
       date <- as.Date(date)
       counts <- episodes %>%
@@ -172,6 +179,7 @@ loadfonts(device = 'pdf')
             geom_line(data = projected, aes(x = date, y = median), linetype = 2) +
             geom_ribbon(data = projected, aes(x = date, ymin = lower.ci, ymax = upper.ci), fill = "gray", alpha = 0.3) +
             geom_ribbon(data = projected, aes(x = date, ymin = q1, ymax = q3), fill = "gray", alpha = 0.3) +
+
             geom_vline(xintercept = train_from, color = "red", linetype = 2) +
             theme_mastodon +
             scale_color_manual(values = colours) +
@@ -279,6 +287,7 @@ loadfonts(device = 'pdf')
     labs(x = "Date", y = "Count", title = "Monthly counts + 12 month moving average") +
       coord_cartesian(xlim = c(min(dates), max(dates))) +
       geom_vline(xintercept = project_from, color = "red", linetype = 2))
+
   
   print(ggplot() +
           geom_line(data = join_actuals, aes(x = date, y = value)) +
@@ -387,6 +396,7 @@ loadfonts(device = 'pdf')
       coord_cartesian(xlim = c(min(dates), max(dates))) +
         geom_vline(xintercept = project_from, color = "red", linetype = 2))
     
+
     print(ggplot() +
             geom_line(data = join_actuals, aes(x = date, y = value)) +
             geom_line(data = join_projected_ci, aes(x = date, y = median), linetype = 2) +
@@ -411,13 +421,11 @@ loadfonts(device = 'pdf')
   }
 }
 
-pdf(output_file, fonts = "Arial")
+pdf(output_file, paper = "a4r")
+
 output_all_charts()
 dev.off()
 embed_fonts(file = output_file, outfile = output_file)
-
-
-Sys.setenv(R_GSCMD="C:/Program Files/gs/gs9.53.3/bin/gswin64c.exe")
 
 elapsed_months <- function(end_date, start_date) {
   ed <- as.POSIXlt(end_date)
@@ -479,6 +487,7 @@ plot_summary <- function(project_from, project_yrs) {
           labs(x = "Duration in care", y = "Quantile", title = "Comparison of estimated and modelled duration in care"))
   
   
+
   projected_periods <- projected_episodes %>% group_by(Simulation, ID) %>% summarise(Min.Start = min(Start), Max.End = max(End)) %>% ungroup
   dates <- seq(as.Date("2011-01-01"), project_from + years(project_yrs), by = "week")
   colours = tableau_color_pal("Tableau 20")(20)
@@ -661,6 +670,7 @@ plot_summary <- function(project_from, project_yrs) {
 }
 
 elapsed_months(as.Date("2020-11-11"), as.Date("2020-10-03"))
+
 
 pdf(output_file_joiners, fonts = c("Open Sans", "Open Sans SemiBold"), paper = "a4r")
 plot_summary(project_from, project_yrs)
@@ -876,11 +886,58 @@ projected_episodes$Admission.Age <- factor(projected_episodes$Admission.Age)
 
 ## Attempt 1
 
+historic_episodes <- projected_episodes %>%
+  filter(Simulation == 1 && Provenance %in% c("H", "P")) %>%
+  group_by(ID) %>%
+  slice(1) %>%
+  select(Simulation, ID, Period.Start, Period.End, Admission.Age, Birthday, Provenance)
+
+historic_episodes <- historic_episodes %>%
+  mutate(Event = if_else(Period.End >= project_from, 0, 1)) %>%
+  mutate(Measured.Duration = day_diff(Period.Start, min(Period.End, project_from)),
+         Model.Duration = day_diff(Period.Start, Period.End))
+
+impute.quantiles <- function(df) {
+  res <- df %>% as.data.frame %>% mutate(`100` = coalesce(`100`, 18:1 * 365))
+  res <- t(na.approx(t(res))) %>% as.data.frame
+  res <- cbind(age = str_replace(rownames(df),"admission_age=", ""), res)
+  colnames(res) <- c("age", 0:100)
+  res
+}
+
+fit <- survfit(Surv(Measured.Duration, Event) ~ Admission.Age, data = historic_episodes)
+survival_quantiles <- stats::quantile(fit, probs = seq(0,1,length.out = 101))
+imputed <- impute.quantiles(survival_quantiles$quantile)
+imputed$age <- 0:17
+
+imputed_quantiles <- melt(imputed, id.vars = c("age")) %>%
+  mutate(Admission.Age = factor(age),
+         Group = paste(age),
+         variable = as.numeric(variable) / 100.0)
+
+ggplot() +
+  geom_line(data = imputed_quantiles, aes(value, variable, group = Admission.Age), linetype = 2, colour = "orange") +
+  facet_wrap(vars(Admission.Age))
+
+all_episodes <- projected_episodes %>%
+  group_by(ID) %>%
+  slice(1) %>%
+  select(Simulation, ID, Period.Start, Period.End, Admission.Age, Birthday, Provenance) %>%
+  mutate(Model.Duration = day_diff(Period.Start, Period.End))
+
+all_quantiles <- all_episodes %>%
+  group_by(Admission.Age, Simulation) %>%
+  mutate(quantile = ecdf(Model.Duration)(Model.Duration)) %>%
+  arrange(Model.Duration) %>%
+  mutate(Group = paste(Simulation, Admission.Age))
 
 
-## Attempt 1.5
-
-## Separate 
+ggplot() +
+  geom_line(data = all_quantiles, aes(Model.Duration, quantile, group = Group), alpha = 0.05) +
+  geom_line(data = imputed_quantiles, aes(value, variable, group = Group), linetype = 3, colour = "red") +
+  facet_wrap(vars(Admission.Age), ncol = 6, scales = "free_x") +
+  theme_mastodon +
+  labs(x = "Duration in care", y = "Quantile", title = "Comparison of estimated and modelled duration in care")
 
 all_quantiles %>%
   mutate(Short.Period = Model.Duration < 250) %>%
@@ -919,6 +976,7 @@ ggplot() +
   theme_mastodon +
   labs(x = "Duration in care", y = "Quantile", title = "Comparison of estimated and modelled duration in care") +
   scale_colour_manual(values = tableau_color_pal("Tableau 20")(20))
+
 
 ## Attempt 2
 
@@ -1022,3 +1080,32 @@ periods %>%
   theme_mastodon +
   xlim(c(0,800)) +
   ylim(c(0,1))
+
+  #labs(title = (i)) +
+  #theme_mastodon +
+  #coord_cartesian(xlim=c(0,(18-i)*365),ylim=c(0,1))
+
+pdf(output_file_test)
+for (i in 0:17){
+  for (j in -5:5){
+    print(
+    periods %>%
+        filter(Admission.Age == i) %>%
+        mutate(sample_label = year(Period.End - months(7) - days(12)) - 2019) %>%
+        filter(sample_label == j) %>%
+        # mutate(sample_label = if_else(sample_label < 0, "Historic", "Projected")) %>%
+        mutate(sample_label = paste(sample_label)) %>%
+        # mutate(Period.Duration = Period.Duration + rnorm(1, sd = 7)) %>%
+        group_by(Simulation) %>%
+        mutate(cdf = ecdf(Period.Duration)(Period.Duration)) %>%
+        ungroup %>%
+        ggplot(aes(Period.Duration, cdf, group = sample_label, colour = sample_label)) +
+        geom_line() +
+        scale_color_manual(values = tableau_color_pal("Tableau 20")(20)) +
+        labs(title = (i)) +
+        theme_mastodon )
+      j=j+1}
+    i=i+1
+}
+dev.off()
+output_file_test <- 'P:\\output-5.pdf'
