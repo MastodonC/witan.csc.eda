@@ -1,4 +1,4 @@
-projected_episodes_file <- 'P:\\scc-episodes-2019-08-13-rewind-1yr-train-3yr-project-5yr-runs-100-seed-42-20201203-no-reject-sampling.csv'
+projected_episodes_file <- 'scc-episodes-2019-08-13-rewind-1yr-train-3yr-project-5yr-runs-100-seed-42-20201203-no-reject-sampling.csv'
 projected_episodes <- read.csv(projected_episodes_file)
 
 periods <- projected_episodes %>%
@@ -19,7 +19,7 @@ chart_data <- periods %>%
   mutate(cdf = ecdf(Period.Duration)(Period.Duration)) %>%
   ungroup
 
-output_file <- 'P:\\output-1.pdf'
+output_file <- 'output-1.pdf'
 pdf(output_file)
 print(chart_data %>%
         filter(chart_data$Period.Duration<=2000)%>%
