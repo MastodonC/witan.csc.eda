@@ -1,0 +1,254 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(lubridate)
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+library(survminer)
+library(survival)
+library(stringr)
+library(zoo)
+library(ggthemes)
+source("src/helpers.R")
+```
+
+
+```{r}
+input_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2020-12-04/suffolk-scrubbed-episodes-20201203.csv"
+data <- read.csv(input_csv)
+data$report_date <- ymd(data$report_date)
+data$ceased <- ymd(data$ceased)
+
+data <- data %>% mutate(birthday = ymd(paste0(DOB, "-01")))
+```
+
+What proportion of first episodes for a given child in the data are not marked to show they are first entry to care? 
+
+```{r}
+
+ggplot(data %>% arrange(ID, report_date) %>% group_by(ID) %>% slice(1), aes(RNE)) + geom_bar()
+
+prop.table(table((data %>% arrange(ID, report_date) %>% group_by(ID) %>% slice(1) %>% mutate(RNE_type = if_else(RNE == "S", "Start", "Not start")))$RNE_type)) * 100
+
+prop.table(table((data %>% arrange(ID, report_date) %>% group_by(ID) %>% slice(1) %>% mutate(RNE_type = if_else(RNE == "S", "Start", "Not start")))$RNE)) * 100
+
+data %>% arrange(ID, report_date) %>% group_by(ID) %>% slice(1) %>% mutate(age_entry = factor(year_diff(birthday, report_date), levels = 0:18)) %>%
+  ggplot(aes(age_entry, fill = RNE)) + geom_bar(position = "fill")
+
+data %>% arrange(ID, report_date) %>% group_by(ID) %>% slice(1) %>% mutate(report_year = factor(year(report_date), levels = 1995:2020), age_entry = factor(year_diff(birthday, report_date), levels = 0:18)) %>%
+  ggplot(aes(age_entry, fill = RNE)) + geom_bar(position = "fill") + facet_wrap(vars(report_year))
+
+```
+Chart above demonstrates that we are likely missing the initial episode(s) from all children entering prior to 2009. This means we are unlikely to see the true likelihood of a child remaining in care for more than 10 years.
+
+
+```{r}
+## Ruth data
+
+ruth_main_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2021-01-07/2020-12-10 Mastodon 19-20 CiC data + PR code + URN unencrypted.csv"
+ruth_header_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2021-01-07/2020-12-10 Mastodon 19-20 CiC data + PR code + URN unencrypted header row.csv"
+ruth_main <- read.csv(ruth_main_csv)
+ruth_header <- read.csv(ruth_header_csv)
+
+ruth_data <- ruth_main %>% inner_join(ruth_header %>% unique) %>%
+  mutate(report_date = parse_date_time(DECOM, orders = "%d/%m/%Y"), ceased = parse_date_time(DEC,orders = "%d/%m/%Y"),
+         date_entry = parse_date_time(D_LAST_POC, orders = "%d/%m/%Y"),
+         ID = Anonymised.id)
+
+ruth_data <- ruth_data %>% mutate(birthday = ymd(paste0(DOB, "-01")))
+
+```
+
+We want to show that all children who don't have an initial S RNE have an earlier start date.
+
+```{r}
+table((ruth_data %>% arrange(ID, report_date) %>% group_by(ID) %>% slice(1) %>%
+  filter(RNE != "S") %>% mutate(earlier_date_entry = date_entry < report_date))$earlier_date_entry)
+
+ruth_data %>% arrange(ID, report_date) %>% group_by(ID) %>% slice(1) %>%
+  filter(RNE != "S") %>% mutate(missing_duration = day_diff(date_entry, report_date)) %>%
+    ggplot(aes(missing_duration)) + geom_histogram(bins = 50)
+
+```
+
+Compare total durations of children in care both with and without Ruth's data.
+
+```{r}
+# Convert ruth's data to periods
+
+period_durations <- ruth_data %>% assoc.period.id %>% arrange(report_date) %>% group_by(period_id) %>%
+  summarise(imputed_period_duration = day_diff(min(report_date), max(ceased)) / 365.0,
+            actual_period_duration = day_diff(min(date_entry), max(ceased)) / 365.0) %>% ungroup
+
+period_durations %>% mutate(period_difference = actual_period_duration - imputed_period_duration) %>%
+  ggplot(aes(period_difference)) + geom_histogram()
+
+duration_cdfs <- rbind(period_durations %>% filter(!is.na(imputed_period_duration)) %>% mutate(label = "imputed", q = ecdf(imputed_period_duration)(imputed_period_duration), duration = imputed_period_duration), period_durations %>%  filter(!is.na(actual_period_duration)) %>% mutate(label = "actual", q = ecdf(actual_period_duration)(actual_period_duration), duration = actual_period_duration))
+                                       
+duration_cdfs %>%
+  ggplot(aes(duration, q, colour = label)) +
+  scale_y_continuous(breaks = seq(0,1,by = 0.05)) +
+  scale_x_continuous(breaks = seq(0,18)) +
+  geom_line()
+
+child_durations <- ruth_data %>% arrange(report_date) %>% group_by(ID) %>%
+  summarise(RNE = RNE[1],
+            min_report_date = min(report_date),
+            max_ceased = max(ceased),
+            min_date_entry = min(date_entry),
+            imputed_period_duration = day_diff(min(report_date), max(ceased)) / 365.0,
+            actual_period_duration = day_diff(min(date_entry), max(ceased)) / 365.0) %>% ungroup
+
+child_durations %>% filter(is.na(max_ceased)) %>% mutate(group = min_report_date == min_date_entry) %>%
+  group_by(group) %>% summarise(n = n())
+
+child_duration_cdfs <- rbind(child_durations %>% filter(!is.na(imputed_period_duration)) %>% mutate(label = "imputed", q = ecdf(imputed_period_duration)(imputed_period_duration), duration = imputed_period_duration), child_durations %>%  filter(!is.na(actual_period_duration)) %>% mutate(label = "actual", q = ecdf(actual_period_duration)(actual_period_duration), duration = actual_period_duration))
+                                       
+child_duration_cdfs %>%
+  ggplot(aes(duration, q, colour = label)) +
+  scale_y_continuous(breaks = seq(0,1,by = 0.05)) +
+  scale_x_continuous(breaks = seq(0,18)) +
+  geom_line()
+
+
+
+```
+
+```{r}
+ruth_data
+# 1,944 episodes
+
+length(unique((ruth_data %>% assoc.period.id)$period_id))
+# 1,239
+
+length(unique(ruth_data$ID))
+# 1,239
+
+ruth_data %>% group_by(ID) %>% summarise(min_report_date = min(report_date),
+                                         min_date_entry = min(date_entry),
+                                         day_diff = day_diff(min_date_entry, min_report_date)) %>%
+  filter(abs(day_diff) > 700)
+
+
+ruth_data %>% group_by(ID) %>% summarise(min_report_date = min(report_date),
+                                         min_date_entry = min(date_entry),
+                                         diff = min_date_entry != min_report_date,
+                                         report_year = year(min_report_date)) %>%
+  group_by(report_year, diff) %>% summarise(n = n()) %>%
+  ggplot(aes(report_year, n, fill = diff)) + geom_bar(stat = "identity", position = "fill")
+```
+```{r}
+
+
+child_durations <- data %>% inner_join(ruth_data %>% dplyr::select(ID, date_entry), by = "ID") %>% assoc.period.id %>% arrange(report_date) %>% group_by(period_id) %>%
+  summarise(RNE = RNE[1],
+            min_report_date = min(report_date),
+            max_ceased = max(ceased),
+            min_date_entry = min(date_entry),
+            imputed_period_duration = day_diff(min(report_date), max(ceased)) / 365.0,
+            actual_period_duration = day_diff(min(date_entry), max(ceased)) / 365.0) %>% ungroup
+
+child_durations %>% filter(is.na(max_ceased)) %>% mutate(group = min_report_date == min_date_entry) %>%
+  group_by(group) %>% summarise(n = n())
+
+child_duration_cdfs <- rbind(child_durations %>% filter(!is.na(imputed_period_duration)) %>% mutate(label = "imputed", q = ecdf(imputed_period_duration)(imputed_period_duration), duration = imputed_period_duration), child_durations %>%  filter(!is.na(actual_period_duration)) %>% mutate(label = "actual", q = ecdf(actual_period_duration)(actual_period_duration), duration = actual_period_duration))
+                                       
+child_duration_cdfs %>%
+  ggplot(aes(duration, q, colour = label)) +
+  scale_y_continuous(breaks = seq(0,1,by = 0.05)) +
+  scale_x_continuous(breaks = seq(0,18)) +
+  geom_line()
+
+```
+
+## Generate bar chart of expected duration in care by age of entry
+
+Using survival analysis, we want to come up with the expected care duration by age of entry.
+
+```{r}
+
+max_date <- max(max(data$ceased, na.rm = TRUE), max(data$report_date))
+
+d <- 0.5
+
+survdata <- data %>%
+  left_join(ruth_data %>% select(ID, date_entry), by = "ID") %>%
+  assoc.period.id %>%
+  mutate(birthday = as.Date(paste0(DOB, "-01"))) %>%
+  group_by(period_id) %>%
+  summarise(date_entry = date_entry[1],
+            DOB = DOB[1],
+            implied_duration = day_diff(min(report_date), coalesce(max(ceased), max_date)),
+            actual_duration = if_else(date_entry < min(report_date),
+                                            day_diff(date_entry, coalesce(max(ceased), max_date)),
+                                            implied_duration),
+            RNE = RNE[1],
+            event = !is.na(max(ceased)),
+            join_age = year_diff(min(birthday), min(report_date)),
+            join_age_days = day_diff(min(birthday), max(report_date)))
+
+  ## Implied data
+  fit <- survfit(Surv(implied_duration, event) ~ join_age, data = survdata)
+  long.quantile <- reshape2::melt(stats::quantile(fit, probs = seq(0,0.999,length.out = 1000))$quantile) %>%
+    mutate(join_age = as.integer(str_replace(Var1, "join_age=", ""))) %>%
+    select(-1) %>%
+    as.data.frame
+  colnames(long.quantile) <- c("quantile", "duration", "join_age")
+  
+  wide.cdf <- dcast(join_age ~ quantile, data = long.quantile, drop = FALSE, value.var = "duration")
+  colnames(wide.cdf)
+  wide.cdf <- cbind(wide.cdf, data.frame(`100` = apply(wide.cdf, 1, max, na.rm = TRUE)))
+  wide.cdf.imputed <- as.data.frame(t(na.approx(t(wide.cdf))))
+  colnames(wide.cdf.imputed) <- c("join_age", seq(0, 1000, length.out = ncol(wide.cdf.imputed) - 1))
+  long.cdf.imputed <- melt(wide.cdf.imputed, id.vars = "join_age")
+  
+  granularity <- 1 # How many data points per year
+  
+  long.pdf <- long.cdf.imputed %>%
+    mutate(age_exit = join_age + (value / 365.0)) %>%
+    mutate(age_exit = floor(age_exit * granularity) / granularity) %>%
+    group_by(join_age, age_exit) %>%
+    summarise(q = min(as.numeric(as.character(variable)))) %>%
+    mutate(p = q - coalesce(lag(q), 0.0)) %>%
+    mutate(p = p * 100 / sum(p)) %>%
+    ungroup
+  
+  ggplot(long.pdf, aes(age_exit, p)) + geom_bar(stat = "identity") + facet_wrap(vars(join_age))
+
+```
+```{r}
+  ## Actual data from Ruth
+  fit <- survfit(Surv(actual_duration, event) ~ join_age, data = survdata)
+  long.quantile <- reshape2::melt(stats::quantile(fit, probs = seq(0,0.999,length.out = 1000))$quantile) %>%
+    mutate(join_age = as.integer(str_replace(Var1, "join_age=", ""))) %>%
+    select(-1) %>%
+    as.data.frame
+  colnames(long.quantile) <- c("quantile", "duration", "join_age")
+  
+  wide.cdf <- dcast(join_age ~ quantile, data = long.quantile, drop = FALSE, value.var = "duration")
+  colnames(wide.cdf)
+  wide.cdf <- cbind(wide.cdf, data.frame(`100` = apply(wide.cdf, 1, max, na.rm = TRUE)))
+  wide.cdf.imputed <- as.data.frame(t(na.approx(t(wide.cdf))))
+  colnames(wide.cdf.imputed) <- c("join_age", seq(0, 1000, length.out = ncol(wide.cdf.imputed) - 1))
+  long.cdf.imputed <- melt(wide.cdf.imputed, id.vars = "join_age")
+  
+  granularity <- 1
+  
+  long.pdf <- long.cdf.imputed %>%
+    mutate(age_exit = join_age + (value / 365.0)) %>%
+    mutate(age_exit = floor(age_exit * granularity) / granularity) %>%
+    group_by(join_age, age_exit) %>%
+    summarise(q = min(as.numeric(as.character(variable)))) %>%
+    mutate(p = q - coalesce(lag(q), 0.0)) %>%
+    mutate(p = p * 100 / sum(p)) %>%
+    ungroup
+  
+  ggplot(long.pdf, aes(age_exit, p)) + geom_bar(stat = "identity") + facet_wrap(vars(join_age))
+```
+
+
+
