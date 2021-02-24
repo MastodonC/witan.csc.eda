@@ -1,7 +1,7 @@
 library(dplyr)
 library(tidyr)
 library(formattable)
-projected_episodes_file <- 'P:\\scc-episodes-2019-08-13-rewind-1yr-train-3yr-project-5yr-runs-100-seed-42-20201203-no-reject-sampling.csv'
+projected_episodes_file <- 'scc-episodes-2019-08-13-rewind-1yr-train-3yr-project-5yr-runs-100-seed-42-20201203-no-reject-sampling.csv'
 projected_episodes <- read.csv(projected_episodes_file)
 project_from <- as.Date("2019-08-13")
 
