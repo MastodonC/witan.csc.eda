@@ -247,7 +247,8 @@ loadfonts(device = 'pdf')
   net_actuals <- join_actuals %>%
     inner_join(leave_actuals, by = "date") %>%
     mutate(value = value.x - value.y) %>%
-    dplyr::select(date, variable, value)
+    dplyr::select(date, variable.x, value) %>%
+    rename(variable = variable.x)
   
   join_projected <- join_leave_projected %>%
     mutate(Join = floor_date(Join, unit = "month")) %>%
