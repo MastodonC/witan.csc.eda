@@ -117,16 +117,16 @@ loadfonts(device = 'pdf')
             labs(title = paste0(test.placement), x = "Date", y = "CiC"))
   }
 
-   counts_by_age_simulation <- data.frame(Age = c(), Simulation = c(), n = c(), Date = c())
+  counts_by_age_simulation <- data.frame(Age = c(), Simulation = c(), n = c(), Date = c())
   for (date in dates) {
     date <- as.Date(date)
-  counts_by_age_simulation <- rbind(counts_by_age_simulation,
-                                    projected_episodes %>%
-    filter(Start <= date & (is.na(End) | End >= date)) %>%
-    mutate(Age = year_diff(Birthday, date)) %>%
-    group_by(Age, Simulation) %>%
-    summarise(n = n()) %>%
-      mutate(Date = date)
+    counts_by_age_simulation <- bind_rows(counts_by_age_simulation,
+                                      projected_episodes %>%
+                                        filter(Start <= date & (is.na(End) | End >= date)) %>%
+                                        mutate(Age = year_diff(Birthday, date)) %>%
+                                        group_by(Age, Simulation) %>%
+                                        summarise(n = n()) %>%
+                                        mutate(Date = date)
     )
   }
 
