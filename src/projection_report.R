@@ -9,6 +9,9 @@ library(stringr)
 library(reshape2)
 library(grid)
 source('src/helpers.R')
+library(readxl)
+library(janitor)
+library(tidyverse)
 
 actual_episodes_file <- "/Users/Seb/code/witan.cic/data/scc/2021-02-11/suffolk-scrubbed-episodes-20201203.csv"
 projected_episodes_file <- "/Users/Seb/code/witan.cic/data/scc/2021-02-11/scc-episodes-2019-03-31-rewind-1yr-train-3yr-project-5yr-runs-100-seed-42-age-out.csv"
@@ -20,12 +23,31 @@ project_yrs <- 2
 train_from <- project_from - years(3)
 projection_end <- project_from + years(project_yrs)
 
+cic_data_file <- '~/Downloads/2021-02-12 CiC Data for Chris Feb 20 sent.xlsx'
+cic_data <- read_xlsx(cic_data_file)
+cic_data <- slice(cic_data, c(3, 44:61))
+colnames(cic_data)<-c("?..", "30.04.18","31.05.18", "30.06.18", "31.07.18", "31.08.18", "30.09.18", "31.10.18", "30.11.18", "31.12.18", "31.01.19", "28.02.19", "31.03.19", "30.04.19", "31.05.19", "30.06.19", "31.07.19", "31.08.19", "30.09.19", "31.10.19", "30.11.19", "31.12.19", "31.01.20", "29.02.20", "31.03.20", "30.04.20", "31.05.20", "30.06.20", "31.07.20", "31.08.20", "30.09.20", "31.10.20", "30.11.20", "31.12.20", "31.01.21")
+nn<-names(cic_data)[-1]
+month_period<-as.Date(nn, format = "%d.%m.%y")
+cic_transpose<-as.data.frame(t(as.matrix(cic_data)))
+cic_transpose <- cic_transpose %>% row_to_names(row_number = 1)
+rownames(cic_transpose) <- NULL
+cic_transpose <- cic_transpose %>% mutate(date = month_period) %>% rename(Total = `Total CiC exl UASC`)
+cic_transpose$date <- ymd(cic_transpose$date)
+colnames(cic_transpose) <- c("Total","0",'1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','16','17',"date")
+
+
 font_import()
 y
 loadfonts(device = 'pdf')
  
- output_all_charts <- function() {
+output_all_charts <- function() {
 
+  plot(0:10, type = "n", xaxt="n", yaxt="n", bty="n", xlab = "", ylab = "")
+  text(5, 10, "Report 1", cex=2.5)
+  text(5, 8, "2021-02-11", cex=2.5)
+  text(5, 6, "Suffolk CiC Projection", cex=2.5)
+  
   set.seed(5)
   episodes <- read.csv(actual_episodes_file, header = TRUE, stringsAsFactors = FALSE, na.strings ="NA")
   episodes$report_date <- ymd(episodes$report_date)
