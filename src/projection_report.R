@@ -94,15 +94,23 @@ output_all_charts <- function() {
     actuals <- rbind(actuals, data.frame(date = c(date), variable = c("actual"), value = c(counts[[1]])))
   }
   actuals$date <- as.Date(actuals$date)
+  
+  actuals <- bind_rows(actuals, cic_transpose %>% 
+                         select(date, Total) %>% 
+                         mutate(variable = "counts") %>% 
+                         rename(value = Total) %>% 
+                         mutate(value = as.numeric(as.character(value))))
+  
   print(ggplot() +
-          geom_line(data = actuals, aes(x = date, y = value)) +
+          geom_line(data = actuals, aes(x = date, y = value, colour = variable)) +
           geom_line(data = projected, aes(x = date, y = median), linetype = 2) +
           geom_ribbon(data = projected, aes(x = date, ymin = lower.ci, ymax = upper.ci), fill = "gray", alpha = 0.3) +
           geom_ribbon(data = projected, aes(x = date, ymin = q1, ymax = q3), fill = "gray", alpha = 0.3) +
           geom_vline(xintercept = train_from, color = "red", linetype = 2) +
           theme_mastodon +
-          scale_color_manual(values = colours) +
-          labs(title = "CiC", x = "Date", y = "CiC"))
+          #scale_color_manual(values = colours) +
+          labs(title = "CiC", x = "Date", y = "CiC")
+        )
   
   for (test.placement in placements) {
     projected <- data.frame(date = c(), lower.ci = c(), q1 = c(), median = c(), q3 = c(), upper.ci = c())
@@ -186,6 +194,8 @@ output_all_charts <- function() {
     projected$date <- as.Date(projected$date)
     projected <- projected %>% filter(lower.ci != upper.ci)
     actuals <- data.frame(date = c(), variable = c(), value = c())
+    
+    
 
     for (date in dates[dates < end_date]) {
       date <- as.Date(date)
@@ -195,16 +205,23 @@ output_all_charts <- function() {
         summarise(n = n())
       actuals <- rbind(actuals, data.frame(date = c(date), variable = c("actual"), value = c(counts[[1]])))
     }
+    
+    actuals <- bind_rows(actuals, cic_transpose %>% 
+                           select(date, as.character(test.age)) %>% 
+                           mutate(variable = "counts") %>% 
+                           rename(value = as.character(test.age)) %>% 
+                           mutate(value = as.numeric(as.character(value)))
+    )
+    
     actuals$date <- as.Date(actuals$date)
     print(ggplot() +
-            geom_line(data = actuals, aes(x = date, y = value)) +
+            geom_line(data = actuals, aes(x = date, y = value, colour = variable)) +
             geom_line(data = projected, aes(x = date, y = median), linetype = 2) +
             geom_ribbon(data = projected, aes(x = date, ymin = lower.ci, ymax = upper.ci), fill = "gray", alpha = 0.3) +
             geom_ribbon(data = projected, aes(x = date, ymin = q1, ymax = q3), fill = "gray", alpha = 0.3) +
-
             geom_vline(xintercept = train_from, color = "red", linetype = 2) +
             theme_mastodon +
-            scale_color_manual(values = colours) +
+            #scale_color_manual(values = colours) +
             labs(title = paste0("Age ", test.age), x = "Date", y = "CiC"))
   }
   
