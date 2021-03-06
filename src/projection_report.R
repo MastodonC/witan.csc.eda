@@ -432,7 +432,7 @@ output_all_charts <- function() {
       geom_ma(n = 12) +
       scale_colour_manual(values = tableau_color_pal("Tableau 20")(20)) +
       theme_mastodon +
-      labs(x = "Date", y = "Count", title = "Joiners, leavers & net growth + 12 period moving average") +
+      labs(x = "Date", y = "Count", title = paste(strwrap(paste("Age", test.age, "joiners, leavers & net growth + 12 period moving average"), width = 30), collapse = "\n")) +
       coord_cartesian(xlim = c(min(dates), max(dates))) +
         geom_vline(xintercept = project_from, color = "red", linetype = 2))
     
