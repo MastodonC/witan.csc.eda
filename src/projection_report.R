@@ -10,13 +10,13 @@ library(reshape2)
 library(grid)
 source('src/helpers.R')
 
-actual_episodes_file <- 'P:\\suffolk-scrubbed-episodes-20201203.csv'
-projected_episodes_file <- 'P:\\scc-episodes-2020-03-31-rewind-0yr-train-2yr-project-5yr-runs-100-seed-42-5-trended.csv'
-output_file <- 'output-1.pdf'
+actual_episodes_file <- "/Users/Seb/code/witan.cic/data/scc/2021-02-11/suffolk-scrubbed-episodes-20201203.csv"
+projected_episodes_file <- "/Users/Seb/code/witan.cic/data/scc/2021-02-11/scc-episodes-2019-03-31-rewind-1yr-train-3yr-project-5yr-runs-100-seed-42-age-out.csv"
+output_file <- '2021-02-11-Suffolk-CiC-projection-report-1.pdf'
 output_file_joiners <- 'output-2.pdf'
 project_from <- as.Date("2020-03-31")
 output_file_layercake <- ''
-project_yrs <- 5
+project_yrs <- 2
 train_from <- project_from - years(3)
 projection_end <- project_from + years(project_yrs)
 
