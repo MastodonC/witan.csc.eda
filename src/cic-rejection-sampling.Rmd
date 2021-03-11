@@ -24,12 +24,22 @@ library(tidyr)
 source("helpers.R")
 ```
 
-
+```{r}
+library(DBI)
+library(RPostgreSQL)
+drv <- dbDriver("PostgreSQL")
+conn <- dbConnect(drv, dbname = "henry")
+```
 
 ```{r}
-input_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2020-12-04/suffolk-scrubbed-episodes-20201203.csv"
-output_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2020-12-04/target-distribution.csv"
-open_durations_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2020-12-04/open-durations.csv"
+input_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/suffolk-scrubbed-episodes-20210219.csv"
+output_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/target-distribution.csv"
+age_out_proportions_output_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/age-out-proportions.csv"
+
+simulated_output_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/simulated-candidates.csv"
+projected_output_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/projected-candidates.csv"
+simulated_age_out_output_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/simulated-age-out-candidates.csv"
+projected_age_out_output_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/projected-age-out-candidates.csv"
 
 data <- read.csv(input_csv)
 data$report_date <- ymd(data$report_date)
@@ -40,15 +50,15 @@ data.frame(xs = c(data$report_date, data$ceased)) %>%
   filter(xs > as.Date("2020-01-01")) %>%
   ggplot(aes(xs)) + geom_histogram()
 
-# We want to fix the input and remove any data after 31st March
-
-
 # Fix dodgy NAs
-extract_date <- as.Date("2020-03-31")
-data$ceased[data$ceased > extract_date] <- NA
-data <- data[data$report_date <= extract_date,]
-
-data %>% filter(duration == 1)
+# extract_date <- as.Date("2020-03-31")
+# data$ceased[data$ceased > extract_date] <- NA
+# data <- data[data$report_date <= extract_date,]
+# 
+# data %>% filter(period_id == "881-1")
+# data %>% filter(period_id == "486-1")
+# 
+# data %>% filter(period_id == "1815-1")
 ```
 
 ```{r}
@@ -57,9 +67,11 @@ data %>% filter(duration == 1)
 # We only know which month each child's birthday falls in, so we create a record
 # for each day of this month.
 
+noise <- 7
+
 binomial_noise <- Vectorize(function(val, max_val) {
   p <- max(1.0 / max_val, min(1.0, val / max_val))
-  max(rbinom(n = 1, size = max_val, prob = p), 1)
+  max(rbinom(n = 1, size = max_val %/% noise, prob = p) * noise, 1)
 })
 
 impute_birthday <- Vectorize(function(lower, upper) {
@@ -80,68 +92,58 @@ eighteen_years_after <- function(date) {
 
 survival_data <- data %>%
   mutate(report_date = ymd(report_date),
-         ceased = ymd(ceased),
-         max_date = max(c(report_date, ceased), na.rm = TRUE)) %>%
+         ceased = ymd(ceased)) %>%
   group_by(period_id) %>%
   dplyr::summarise(period_start = min(report_date),
                    period_end = max(ceased),
                    birth_month_beginning = ymd(paste0(DOB[1], "-01")),
-                   birth_month_end = birth_month_beginning + months(1) - days(1),
-                   max_date = max_date[1])
+                   birth_month_end = birth_month_beginning + months(1) - days(1))
+
+# We think the child aged out if they *could* have hit 18 years - 1 day given their birthday range
+# That means if we assume the oldest they could be, did that cross 18 years - 1 day.
+# That means if we take their earlier birthday, is it *at least* 18 years - 1 day.
 
 survival_data2 <- survival_data %>%
-  mutate(birthday_lower = pmax(birth_month_beginning, eighteen_years_before(replace_na(period_end, max_date[1]))),
+  mutate(birthday_lower = pmax(birth_month_beginning, eighteen_years_before(replace_na(period_end, extract_date))),
          birthday_upper = pmin(birth_month_end, period_start),
-         aged_out = birthday_lower > birthday_upper,
-         period_end = if_else(aged_out, eighteen_years_after(birthday_upper) - days(1), period_end),
+         # aged_out = year_diff(birth_month_beginning, replace_na(period_end, extract_date)) >= 18,
+         # Removing this period_end assignment - don't think we need it
+         # period_end = if_else(aged_out, eighteen_years_after(birthday_upper) - days(1), period_end),
          event = !is.na(period_end),
          duration = if_else(event,
                             day_diff(period_start, period_end),
-                            day_diff(period_start, max(period_start, period_end, na.rm = TRUE))))
+                            day_diff(period_start, extract_date)))
 
+binomial_noise(106, 106)
+
+# These cases violate one of more of our assumptions. We'll assume they left at 18.
 survival_data2 %>% filter(birthday_lower > birthday_upper)
 
 survival_data3 <- survival_data2 %>%
-  mutate(aged_out = birthday_lower > birthday_upper,
-         birthday_lower = if_else(aged_out, birthday_upper, birthday_lower),
-         duration = if_else(aged_out, day_diff(birthday_upper, eighteen_years_after(birthday_upper) - 1), duration)
+  mutate(birthday_lower = pmin(birthday_lower, birthday_upper) # Only matters if there are age 18+ leavers above
          ) %>%
   inner_join(data.frame(n = 1:100), by = character()) %>%
   mutate(birthday = as.Date(impute_birthday(birthday_lower, birthday_upper), origin = "1970-01-01"),
          admission_age = as.factor(clamp(year_diff(birthday, period_start), 0, 17)),
-         max_duration = day_diff(period_start, eighteen_years_after(birthday) - days(1)),
+         max_duration = day_diff(period_start, eighteen_years_after(birthday)),
+         duration = pmin(duration, max_duration),
          fuzzed_duration = binomial_noise(duration, max_duration)
          ) %>%
   as.data.frame
 
-max_date <- max(c(data$report_date, data$ceased), na.rm = TRUE)
-rewind_date <- max_date - years(1)
-
-open_period_durations <- survival_data3 %>%
-  filter(period_start <= rewind_date & (is.na(period_end) | period_end > rewind_date)) %>%
-  dplyr::select(period_id, admission_age, duration) %>%
-  mutate(duration_group = floor(duration / 7))
-
-survival_data3 %>% filter(period_id %in% c('1380-1',
-'3373-1',
-'3880-1'))
-
-write.csv(open_period_durations, file = open_durations_csv, row.names = FALSE)
-
-data %>% filter(period_id %in% (survival_data2 %>% filter(duration == 1))$period_id)
+survival_data4 <- survival_data3 %>%
+  mutate(aged_out = year_diff(birthday, period_start + days(fuzzed_duration)) >= 17, # Going to say no one leaves aged 17
+         event = event | aged_out, # All aged out children are leavers
+         duration = if_else(aged_out, max_duration, duration),
+         fuzzed_duration = if_else(aged_out, max_duration, fuzzed_duration),
+         fuzzed_age = fuzzed_duration + day_diff(birthday, period_start))
 
 ```
 
 
-```{r}
-survival_data3 %>% filter(period_id == "3747-1")
-
-survival_data3 %>% group_by(period_id) %>% slice(1) %>% arrange(duration) %>% filter(event)
-```
-
 
 ```{r}
-fit <- survfit(Surv(fuzzed_duration, event) ~ admission_age, data = survival_data3)
+fit <- survfit(Surv(fuzzed_duration, event) ~ admission_age, data = survival_data4 %>% filter(!aged_out))
 quantiles <- reshape2::melt(stats::quantile(fit, probs = seq(0,0.9999,length.out = 10000))$quantile) %>%
   mutate(join_age = as.integer(str_replace(Var1, "admission_age=", ""))) %>%
   select(-1) %>%
@@ -149,15 +151,14 @@ quantiles <- reshape2::melt(stats::quantile(fit, probs = seq(0,0.9999,length.out
 colnames(quantiles) <- c("quantile", "duration", "admission_age")
 
 quantiles <- dcast(admission_age ~ quantile, data = quantiles, drop = FALSE, value.var = "duration")
-for (row in 1:18) {
+for (row in 1:nrow(quantiles)) {
   # I expect there's a better way of doing this
   age <- row - 1
   max_days <- (18 - age) * 365
   quantiles[row,is.na(quantiles[row,])] <- max_days
   quantiles[row,quantiles[row,] > max_days] <- max_days
-
 }
-quantiles <- cbind(quantiles, data.frame(`100` = 18:1*365))
+quantiles <- cbind(quantiles, data.frame(`100` = 17:1*365))
 colnames(quantiles) <- c("admission_age", seq(0, 10000, length.out = ncol(quantiles) - 1))
 quantiles <- melt(quantiles, id.vars = "admission_age") %>%
   mutate(quantile = as.numeric(variable) / 10000.0,
@@ -174,7 +175,180 @@ target_distribution <- quantiles %>%
   mutate(density = quantile - coalesce(lag(quantile), 0)) %>%
   mutate(density = density * 100 / sum(density))
 
+
+
 write.csv(target_distribution, file = output_csv, row.names = FALSE)
+```
+
+```{r}
+
+grouped3 <- survival_data3 %>%
+  filter(event) %>% # Closed cases
+  mutate(age_exit = day_diff(birthday, period_start + days(duration))) %>%
+  mutate(age_group = age_exit %/% 7) %>%
+  group_by(admission_age, age_group) %>%
+  dplyr::summarise(n = n())
+
+grouped4 <- survival_data4 %>%
+  filter(event) %>% # Closed cases
+  mutate(age_exit = day_diff(birthday, period_start + days(fuzzed_duration))) %>%
+  mutate(age_group = age_exit %/% 7) %>%
+  group_by(admission_age, age_group) %>%
+  dplyr::summarise(n = n())
+
+for (a in 0:17) {
+  print(rbind(cbind(grouped3, label = "Actuals"), cbind(grouped4, label = "Survival")) %>%
+          filter(admission_age == a) %>%
+  ggplot(aes(age_group, n, fill = label)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(vars(label)))
+}
+
+
+
+```
+```{r}
+target4 <- survival_data4 %>%
+  filter(!aged_out) %>%
+  mutate(duration_group = fuzzed_duration %/% 7) %>%
+  group_by(admission_age) %>%
+  mutate(quantile = ecdf(fuzzed_duration)(fuzzed_duration)) %>%
+  group_by(admission_age, duration_group) %>%
+  dplyr::summarise(quantile = max(quantile)) %>%
+  mutate(admission_age = as.numeric(admission_age))
+
+
+for (a in 0:17) {
+  print(rbind(cbind(target_distribution %>% dplyr::select(admission_age, duration_group, quantile),
+                    label = "Survival model"),
+              cbind(target4, label = "Actuals")) %>%
+          filter(admission_age == a) %>%
+  ggplot(aes(duration_group, quantile, colour = label)) +
+  geom_line())
+}
+
+```
+
+```{r}
+episodes_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/scc-episodes-2019-03-31-rewind-1yr-train-3yr-project-5yr-runs-100-seed-42-age-out.csv"
+
+# projected_episodes <- read.csv(episodes_csv) %>%
+#   group_by(ID, Simulation) %>%
+#   slice(1) %>%
+#   mutate(start = ymd(Period.Start), end = ymd(Period.End), birthday = ymd(Birthday))
+
+simulation_durations <- projected_episodes %>%
+  filter(Provenance == "S") %>%
+  mutate(age_exit = day_diff(birthday, end)) %>%
+  mutate(age_group = age_exit %/% 7) %>%
+  mutate(admission_age = Admission.Age) %>%
+  group_by(admission_age, age_group) %>%
+  dplyr::summarise(n = n())
+
+for (a in 0:17) {
+  print(rbind(cbind(simulation_durations, label = "Simulation"),
+              cbind(grouped4, label = "Inferred birthday periods") %>% mutate(admission_age = as.numeric(as.character(admission_age)))) %>%
+          filter(admission_age == a) %>%
+  ggplot(aes(age_group, n, fill = label)) +
+  geom_bar(stat = "identity") +
+  facet_grid(vars(label), scales = "free_y") +
+  coord_cartesian(ylim = c(0, 500)))
+}
+
+```
+```{r}
+for (a in 0:17) {
+  print(rbind(cbind(simulation_durations, label = "Simulation"),
+              cbind(grouped3, label = "Actuals") %>% mutate(admission_age = as.numeric(as.character(admission_age)))) %>%
+          filter(admission_age == a) %>%
+  ggplot(aes(age_group, n, fill = label)) +
+  geom_bar(stat = "identity") +
+  facet_grid(vars(label), scales = "free_y"))
+}
+
+```
+```{r}
+
+grouped3 <- survival_data3 %>%
+  filter(event) %>% # Closed cases
+  mutate(duration_group = duration %/% 7) %>%
+  group_by(admission_age, duration_group) %>%
+  dplyr::summarise(n = n())
+
+
+simulation_durations <- projected_episodes %>%
+  filter(Provenance == "S") %>%
+  mutate(duration_group = Period.Duration %/% 7) %>%
+  mutate(admission_age = Admission.Age) %>%
+  group_by(admission_age, duration_group) %>%
+  dplyr::summarise(n = n())
+
+for (a in 0:17) {
+  print(rbind(cbind(simulation_durations, label = "Simulation"),
+              cbind(grouped3, label = "Survival") %>% mutate(admission_age = as.numeric(as.character(admission_age)))) %>%
+          filter(admission_age == a) %>%
+  ggplot(aes(duration_group, n, fill = label)) +
+  geom_bar(stat = "identity") +
+  facet_grid(vars(label), scales = "free_y"))
+}
+```
+Investigate short stays of less than a month. Let's plot actual duration now.
+
+```{r}
+actuals <- survival_data3 %>%
+  filter(event) %>%
+  filter(duration <= 60) %>%
+  group_by(admission_age, duration) %>%
+  dplyr::summarise(n = n())
+
+simulated <- projected_episodes %>%
+  filter(Provenance == "S") %>%
+  mutate(admission_age = Admission.Age, duration = Period.Duration) %>%
+  filter(duration <= 60) %>%
+  group_by(admission_age, duration) %>%
+  dplyr::summarise(n = n())
+
+for (a in 0:17) {
+  print(rbind(cbind(actuals, label = "Actuals") %>% mutate(admission_age = as.numeric(as.character(admission_age))),
+              cbind(simulated, label = "Simulated") %>% mutate(admission_age = as.numeric(as.character(admission_age)))) %>%
+          filter(admission_age == a) %>%
+  ggplot(aes(duration, n, fill = label)) +
+  geom_bar(stat = "identity") +
+  facet_grid(vars(label), scales = "free_y"))
+}
+
+actuals4 <- survival_data4 %>%
+  filter(event) %>%
+  filter(fuzzed_duration <= 60) %>%
+  mutate(duration = fuzzed_duration) %>%
+  group_by(admission_age, duration) %>%
+  dplyr::summarise(n = n())
+
+for (a in 0:17) {
+  print(rbind(cbind(actuals4, label = "Actuals") %>% mutate(admission_age = as.numeric(as.character(admission_age))),
+              cbind(simulated, label = "Simulated") %>% mutate(admission_age = as.numeric(as.character(admission_age)))) %>%
+          filter(admission_age == a) %>%
+  ggplot(aes(duration, n, fill = label)) +
+  geom_bar(stat = "identity") +
+  facet_grid(vars(label), scales = "free_y"))
+}
+
+```
+```{r}
+
+ggplot(target_distribution %>% filter(duration_group < 8), aes(duration_group, density)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(vars(admission_age), scales = "free_y")
+
+# Do we have enough raw material of short length?
+fuzzy_periods <- dbGetQuery(conn, "SELECT * FROM mastodon.fuzzy_periods WHERE duration_group < 8")
+
+fuzzy_periods %>% filter(provenance == "S") %>%
+  group_by(admission_age, duration) %>%
+  dplyr::summarise(n = n()) %>%
+  ggplot(aes(duration, n)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(vars(admission_age), scales = "free_y")
 ```
 
 Let's plot the target distribution to see what we have...
@@ -184,22 +358,147 @@ ggplot(target_distribution, aes(duration_group, density)) +
   geom_bar(stat = "identity") +
   facet_wrap(vars(admission_age), scales = "free_y")
 
-for (age in 0:17) {
+for (age in 0:16) {
   print(ggplot(target_distribution %>% filter(admission_age == age), aes(duration_group, density)) +
     geom_bar(stat = "identity") +
     facet_wrap(vars(admission_age), scales = "free_y"))
 }
+
+# for (age in 0:17) {
+#   print(ggplot(survival_data4 %>% filter(event & admission_age == age) %>%
+#                  mutate(duration_group = fuzzed_duration %/% 7) %>%
+#                  group_by(aged_out, admission_age, duration_group) %>%
+#                  summarise(n = n()) %>%
+#                  ungroup, aes(duration_group, n, fill = aged_out)) +
+#     geom_bar(stat = "identity") +
+#     facet_wrap(vars(admission_age), scales = "free_y"))
+# }
+
+
+
+```
+```{r}
+for (age in 0:17) {
+  print(survival_data3 %>%
+    filter(!aged_out) %>%
+      filter(admission_age == age) %>%
+     mutate(duration_group = duration %/% 7) %>%
+     group_by(aged_out, admission_age, duration_group) %>%
+     summarise(n = n()) %>%
+     ggplot(aes(duration_group, n)) +
+     geom_bar(stat = "identity") +
+     facet_wrap(vars(admission_age), scales = "free_y"))
+}
+
 ```
 
 
 ```{r}
-library(DBI)
-library(RPostgreSQL)
-drv <- dbDriver("PostgreSQL")
-conn <- dbConnect(drv, dbname = "henry")
+periods_universe_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/scc-periods-universe-2019-03-31-segment-interval-2190-rewind-1yr-train-3yr-samples-100-seed-42-age-out-jitter-7.csv"
+
+periods_universe <- read.csv(periods_universe_csv)
+
+for (age in 0:15){
+  print(periods_universe %>%
+  filter(Admission.Age == age) %>%
+  filter(Provenance == "P") %>%
+  mutate(Duration.Group = Duration %/% 7) %>%
+  group_by(Aged.Out, Admission.Age, Duration.Group) %>%
+  summarise(n = n()) %>%
+  ggplot(aes(Duration.Group, n, fill = Aged.Out)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(vars(Admission.Age)))
+}
+
+for (age in 0:17){
+  print(periods_universe %>%
+  filter(Admission.Age == age) %>%
+  filter(Provenance == "S") %>%
+  mutate(Duration.Group = Duration %/% 7) %>%
+  group_by(Aged.Out, Admission.Age, Duration.Group) %>%
+  summarise(n = n()) %>%
+  ggplot(aes(Duration.Group, n, fill = Aged.Out)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(vars(Admission.Age)))
+}
+
+
 ```
 
+
+```{r}
+
+# Calculate probability that joiner of each age makes it past 17th birthday
+
+fit <- survfit(Surv(fuzzed_age, event) ~ admission_age, data = survival_data4)
+quantiles <- reshape2::melt(stats::quantile(fit, probs = seq(0,0.9999,length.out = 10000))$quantile) %>%
+  mutate(join_age = as.integer(str_replace(Var1, "admission_age=", ""))) %>%
+  select(-1) %>%
+  as.data.frame
+colnames(quantiles) <- c("quantile", "duration", "admission_age")
+
+age_out_proportions = quantiles %>%
+  filter(duration > 17 * 365.25) %>%
+  group_by(admission_age) %>%
+  summarise(p = (100 - min(quantile)) / 100.0)
+
+write.csv(age_out_proportions, file = age_out_proportions_output_csv, row.names = FALSE)
+
+```
+
+
+
+We don't appear to get a peak just before 18. Let's confirm that this isn't in the source data either:
+```{r}
+
+for (age in 0:17) {
+  print(survival_data2 %>%
+  filter(event) %>%
+  mutate(days_before_18_lower = day_diff(period_end, eighteen_years_after(birthday_upper)),
+         days_before_18_upper = day_diff(period_end, eighteen_years_after(birthday_lower)),
+         admission_age_lower = as.factor(clamp(year_diff(birthday_lower, period_start), -1, 18)),
+         admission_age_upper = as.factor(clamp(year_diff(birthday_lower, period_start), -1, 18))) %>%
+  filter(admission_age_lower == age) %>%
+  filter(days_before_18_upper < 365) %>%
+  ggplot(aes(days_before_18_lower, fill = aged_out)) +
+  geom_histogram(bins = 365)) +
+  scale_x_binned(limits = c(0, 365))
+}
+
+for (age in 0:17) {
+  print(survival_data2 %>%
+  filter(event) %>%
+  mutate(days_before_18_lower = day_diff(period_end, eighteen_years_after(birthday_upper)),
+         days_before_18_upper = day_diff(period_end, eighteen_years_after(birthday_lower)),
+         admission_age_lower = as.factor(clamp(year_diff(birthday_lower, period_start), -1, 18)),
+         admission_age_upper = as.factor(clamp(year_diff(birthday_lower, period_start), -1, 18))) %>%
+  filter(admission_age_upper == age) %>%
+  filter(days_before_18_lower < 365 * 2) %>%
+  ggplot(aes(days_before_18_upper, fill = aged_out)) +
+  geom_histogram(bins = 365)) +
+  scale_x_binned(limits = c(0, 365))
+}
+
+# Should we make the strong assumption that if someone could have left just before their 18th birthday, they did?
+```
+
+
+
 ```{sql connection=conn}
+-- Create the periods table containing the universe of all periods
+DROP TABLE IF EXISTS mastodon.periods;
+
+CREATE TABLE mastodon.periods (
+    provenance character varying(1),
+    id character varying(16),
+    sample_index integer,
+    admission_age integer,
+    admission_age_days integer,
+    duration integer,
+    episodes_edn text,
+    aged_out boolean
+);
+
 DROP TABLE IF EXISTS mastodon.target_distribution;
 
 CREATE TABLE mastodon.target_distribution (
@@ -207,9 +506,39 @@ CREATE TABLE mastodon.target_distribution (
     duration_group integer,
     density double precision
 );
+
+SELECT TRUE AS created_input_tables;
+```
+```{r}
+# Upload periods universe
+staged <- periods_universe
+colnames(staged) <- c("provenance", "id", "sample_index", "admission_age", "admission_age_days", "duration", "episodes_edn", "aged_out")
+dbWriteTable(conn, c("mastodon", "periods"), staged, append = TRUE, row.names = FALSE)
+
+# Upload target distribution
+staged <- target_distribution[,c("admission_age", "duration_group", "density")]
+dbWriteTable(conn, c("mastodon", "target_distribution"), staged, append = TRUE, row.names = FALSE)
 ```
 
-At this point you should load the target distribution and the open period durations tables from the CSVs you've just created
+```{r}
+aged_out_periods <- dbGetQuery(conn, "SELECT * FROM mastodon.periods WHERE provenance = 'P' AND aged_out = TRUE");
+
+for (age in 0:17) {
+  print(aged_out_periods %>%
+  mutate(leave_age_days = admission_age_days + duration) %>%
+  group_by(id) %>%
+  summarise(max_leave_age_days = max(leave_age_days),
+            admission_age = admission_age[1]) %>%
+    filter(admission_age == age) %>%
+  arrange(max_leave_age_days) %>%
+  mutate(id = 1:nrow(.)) %>%
+  ggplot(aes(id, max_leave_age_days)) +
+  geom_bar(stat = "identity") +
+  scale_y_continuous(breaks = seq(0, 6500, by = 250)))
+}
+
+```
+
 
 We create versions of the input periods to try and get good coverage of the whole target distribution.
 This means adjusting the total duration by up to 10 weeks either way.
@@ -226,11 +555,24 @@ SELECT p.provenance, p.id, p.sample_index, p.admission_age, p.admission_age_days
   cast(p.duration + noise AS int) AS duration, CAST(duration + noise AS int) / 7 AS duration_group, episodes_edn
 FROM mastodon.periods AS p
   CROSS JOIN noise
-WHERE duration + noise >= 28;
+WHERE (duration + noise >= 28 OR noise = 0)
+AND aged_out = FALSE;
+
+INSERT INTO mastodon.fuzzy_periods
+WITH noise AS (
+  SELECT generate_series(-7, 7) AS noise
+)
+SELECT p.provenance, p.id, p.sample_index, p.admission_age, p.admission_age_days,
+  cast(p.duration + noise AS int) AS duration, CAST(duration + noise AS int) / 7 AS duration_group, episodes_edn
+FROM mastodon.periods AS p
+  CROSS JOIN noise
+WHERE duration + noise >= 0
+AND duration + noise < 28
+AND noise != 0
+AND aged_out = FALSE;
 ```
 
 For all those who join aged at least 1, we create versions of all simulated and projected data with fuzzed birthdays: up to 5 weeks in either direction.
-
 
 ```{sql connection=conn}
 WITH noise AS (
@@ -263,14 +605,14 @@ for (age in 0:17) {
 
 
 ```{sql connection=conn}
-DROP TABLE mastodon.candidate_distributions;
+DROP TABLE IF EXISTS mastodon.candidate_distributions;
+
+DROP TABLE IF EXISTS mastodon.target_projected_distribution;
 
 CREATE TABLE mastodon.candidate_distributions AS
 SELECT provenance, admission_age, duration_group, COUNT(*) AS density
 FROM mastodon.fuzzy_periods
 GROUP BY provenance, admission_age, duration_group;
-
-DROP TABLE mastodon.target_projected_distribution;
 
 CREATE TABLE mastodon.target_projected_distribution AS
 WITH open_period_durations AS (
@@ -312,19 +654,20 @@ for (age in 0:17) {
 }
 
 
-target_projected_duration_groups <- dbGetQuery(conn, "SELECT admission_age, duration_group, density
-                                  FROM mastodon.target_projected_distribution")
-
-for (age in 0:17) {
-  print(ggplot(target_projected_duration_groups %>% filter(admission_age == age), aes(duration_group, density)) +
-    geom_bar(stat = "identity") +
-    facet_wrap(vars(admission_age), scales = "free_y"))
-}
 ```
 
 We need to ensure that every ID to be projected has at least one period with a non-zero density in the target (otherwise it will never be chosen)
 
 ```{r}
+
+target_projected_duration_groups <- dbGetQuery(conn, "SELECT admission_age, duration_group, density
+                                  FROM mastodon.target_projected_distribution")
+
+for (age in 0:16) {
+  print(ggplot(target_projected_duration_groups %>% filter(admission_age == age), aes(duration_group, density)) +
+    geom_bar(stat = "identity") +
+    facet_wrap(vars(admission_age), scales = "free_y"))
+}
 
 non_join_duration_groups <- dbGetQuery(conn, "WITH empty_ids AS (
 SELECT fp.id
@@ -346,70 +689,60 @@ combined_duration_groups <- rbind(cbind(id = "target", target_projected_duration
   group_by(id, admission_age) %>%
   mutate(density = density / max(density)) 
 
+library(ggthemes)
+
 for (age in 0:17) {
   print(ggplot(combined_duration_groups %>% filter(admission_age == age), aes(duration_group, density, fill = id)) +
   geom_bar(stat = "identity", position = "fill") +
-  facet_wrap(vars(admission_age)))
+  facet_wrap(vars(admission_age)) +
+  scale_fill_manual(values = tableau_color_pal("Tableau 20")(20)))
+  
 }
 
+## Shows they should all remain until 18
 
 ```
 
 ```{sql connection=conn}
-
-
+DROP TABLE mastodon.simulated_candidates;
 DROP TABLE mastodon.projected_candidates;
+```
+
+```{sql connection=conn}
+
+-- Update destination if necessary
 CREATE TABLE mastodon.projected_candidates AS
-WITH period_distributions AS (
-  SELECT id, admission_age, duration_group, COUNT(*) AS density
-  FROM mastodon.fuzzy_periods
-  GROUP BY id, admission_age, duration_group
-),
-max_ratio AS (
-  SELECT id, MAX(tpd.density / pd.density) AS max_ratio
-  FROM period_distributions pd
-  JOIN mastodon.target_projected_distribution tpd
-  ON pd.admission_age = tpd.admission_age
-  AND pd.duration_group = tpd.duration_group
-  GROUP BY id
-),
-samples AS (
-  SELECT fp.*, pd.density AS candidate_density, tpd.density AS target_density, mr.max_ratio AS max_ratio
-  FROM mastodon.fuzzy_periods fp
-  INNER JOIN period_distributions pd
-  ON fp.id = pd.id
-  AND fp.admission_age = pd.admission_age
-  AND fp.duration_group = pd.duration_group
-  INNER JOIN mastodon.target_projected_distribution tpd
-  ON fp.admission_age = tpd.admission_age
-  AND fp.duration_group = tpd.duration_group
-  INNER JOIN max_ratio mr
-  ON fp.id = mr.id
-  WHERE fp.provenance = 'P'
-),
-filtered_samples AS (
+WITH source_periods AS (
+  -- Update source periods if necessary
   SELECT *
-  FROM samples
-  WHERE random() * 0.05 <= target_density / (candidate_density * max_ratio)
+  FROM mastodon.fuzzy_periods
+  WHERE provenance = 'P'
 ),
-new_candidate_density AS (
-  SELECT id, admission_age, duration_group, COUNT(*) AS density
-  FROM filtered_samples
-  GROUP BY id, admission_age, duration_group
+target_distribution AS (
+  -- Update target if necessary
+  SELECT * FROM mastodon.target_projected_distribution
+),
+candidate_distribution AS (
+  SELECT admission_age, duration_group, COUNT(*) AS density
+  FROM source_periods
+  GROUP BY admission_age, duration_group
+),
+reject_proportions AS (
+  SELECT t.admission_age, t.duration_group, t.density / c.density AS reject_ratio
+  FROM target_distribution t
+  LEFT JOIN candidate_distribution c
+  ON c.admission_age = t.admission_age
+  AND c.duration_group = t.duration_group
 )
-SELECT s.provenance, s.id, s.sample_index, s.admission_age, s.admission_age_days, s.duration, s.duration_group, s.episodes_edn, tpd.density / d.density AS reject_ratio
-FROM filtered_samples s
-INNER JOIN new_candidate_density d
-ON s.id = d.id
-AND s.admission_age = d.admission_age
-AND s.duration_group = d.duration_group
-INNER JOIN mastodon.target_projected_distribution tpd
-ON s.admission_age = tpd.admission_age
-AND s.duration_group = tpd.duration_group;
+SELECT fp.*, rp.reject_ratio
+FROM source_periods fp
+INNER JOIN reject_proportions rp
+ON fp.admission_age = rp.admission_age
+AND fp.duration_group = rp.duration_group
+WHERE random() <= 0.25;
 
-
-
-
+-- If no samples from a particular candidate made it through rejection sampling,
+-- bypass rejection sampling to add them in, because otherwise they will be dropped completely.
 INSERT INTO mastodon.projected_candidates
 WITH missing_periods AS (
 SELECT *, row_number() OVER (PARTITION BY id ORDER BY random()) AS rand_id
@@ -420,61 +753,451 @@ AND id NOT IN (
   FROM mastodon.projected_candidates
 )
 )
+-- Maybe we ought to set the duration to cause them to age out at 18 - this seem like their destiny.
+-- However this would cause them to remain in their final placement for a long time.
 SELECT provenance, id, sample_index, admission_age, admission_age_days, duration, duration_group, episodes_edn, 1.0 AS reject_ratio
 FROM missing_periods
 WHERE rand_id <= 100;
 
-
-
-DROP TABLE mastodon.simulated_candidates;
+-- Update destination if necessary
 CREATE TABLE mastodon.simulated_candidates AS
-WITH candidate_distribution AS (
-  SELECT admission_age, duration_group, COUNT(*) AS density
+WITH source_periods AS (
+  -- Update source periods if necessary
+  SELECT *
   FROM mastodon.fuzzy_periods
   WHERE provenance = 'S'
+),
+target_distribution AS (
+  -- Update target if necessary
+  SELECT * FROM mastodon.target_distribution
+),
+candidate_distribution AS (
+  SELECT admission_age, duration_group, COUNT(*) AS density
+  FROM source_periods
   GROUP BY admission_age, duration_group
 ),
 reject_proportions AS (
   SELECT t.admission_age, t.duration_group, t.density / c.density AS reject_ratio
-  FROM mastodon.target_distribution t
+  FROM target_distribution t
   LEFT JOIN candidate_distribution c
-  ON c.admission_age = t.admission_age
-  AND c.duration_group = t.duration_group
-),
-reject_constants AS (
-  SELECT admission_age, MAX(reject_ratio) AS c
-  FROM reject_proportions
-  GROUP BY admission_age
-),
-fuzzy_periods_filtered AS (
-  SELECT fp.*
-  FROM mastodon.fuzzy_periods fp
-  INNER JOIN reject_proportions rp
-  ON fp.admission_age = rp.admission_age
-  AND fp.duration_group = rp.duration_group
-  INNER JOIN reject_constants rc
-  ON fp.admission_age = rc.admission_age
-  WHERE fp.provenance = 'S'
-  AND random() * 0.1 <= rp.reject_ratio / rc.c
-),
-candidate_distribution_filtered AS (
-  SELECT admission_age, duration_group, COUNT(*) AS density
-  FROM fuzzy_periods_filtered
-  WHERE provenance = 'S'
-  GROUP BY admission_age, duration_group
-),
-reject_proportions_filtered AS (
-  SELECT c.admission_age, c.duration_group, t.density / c.density AS reject_ratio
-  FROM mastodon.target_distribution t
-  LEFT JOIN candidate_distribution_filtered c
   ON c.admission_age = t.admission_age
   AND c.duration_group = t.duration_group
 )
 SELECT fp.*, rp.reject_ratio
-FROM fuzzy_periods_filtered fp
-INNER JOIN reject_proportions_filtered rp
+FROM source_periods fp
+INNER JOIN reject_proportions rp
 ON fp.admission_age = rp.admission_age
-AND fp.duration_group = rp.duration_group;
+AND fp.duration_group = rp.duration_group
+WHERE random() <= 0.25;
+
+```
+
+
+```{r}
+
+staged <- dbGetQuery(conn, "SELECT * FROM mastodon.projected_candidates");
+write.csv(staged, file = projected_output_csv, row.names = FALSE)
+
+staged <- dbGetQuery(conn, "SELECT * FROM mastodon.simulated_candidates");
+write.csv(staged, file = simulated_output_csv, row.names = FALSE)
+
+staged <- dbGetQuery(conn, "SELECT provenance, id, sample_index, admission_age, admission_age_days, duration, episodes_edn
+FROM mastodon.periods
+WHERE provenance = 'S'
+AND aged_out = TRUE
+AND admission_age_days + duration > (17 * 365)")
+write.csv(staged, file = simulated_age_out_output_csv, row.names = FALSE)
+
+
+staged <- dbGetQuery(conn, "SELECT provenance, id, sample_index, admission_age, admission_age_days, duration, episodes_edn
+FROM mastodon.periods
+WHERE provenance = 'P'
+AND aged_out = TRUE
+AND admission_age_days + duration > (17 * 365)")
+write.csv(staged, file = projected_age_out_output_csv, row.names = FALSE)
+
+```
+
+
+This is our target distribution. How did we do at matching it?
+
+```{r}
+episodes_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2020-12-04/scc-episodes-2019-08-13-rewind-1yr-train-3yr-project-5yr-runs-100-seed-42-universe.csv"
+
+episodes_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2020-12-04/scc-episodes-2020-03-31-rewind-0yr-train-3yr-project-5yr-runs-100-seed-42-5-trended.csv"
+
+episodes_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2020-12-04/scc-episodes-2020-03-31-rewind-0yr-train-3yr-project-5yr-runs-100-seed-42-age-out.csv"
+
+episodes_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/scc-episodes-2019-03-31-rewind-1yr-train-3yr-project-5yr-runs-100-seed-42-age-out.csv"
+
+episodes_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/scc-episodes-2019-03-31-rewind-1yr-train-3yr-project-5yr-runs-100-seed-42.csv"
+```
+
+```{r}
+projected_episodes <- read.csv(episodes_csv) %>%
+  group_by(ID, Simulation) %>%
+  slice(1) %>%
+  mutate(start = ymd(Period.Start), end = ymd(Period.End), birthday = ymd(Birthday))
+
+simulated_cdf <- projected_episodes %>%
+  filter(Provenance == "S") %>%
+  # filter(year_diff(birthday, end) < 18) %>%
+  rename(admission_age = Admission.Age, duration = Period.Duration, simulation = Simulation) %>%
+  group_by(simulation, admission_age) %>%
+  mutate(duration_group = duration %/% 7) %>%
+  mutate(quantile = ecdf(duration_group)(duration_group)) %>%
+  dplyr::select(simulation, admission_age, duration_group, quantile)
+
+target_cdf <- survival_data4 %>%
+  group_by(admission_age) %>%
+  mutate(duration_group = fuzzed_duration %/% 7) %>%
+  mutate(quantile = ecdf(duration_group)(duration_group))
+  
+
+# ggplot(simulated_cdf, aes(duration_group, quantile)) +
+#   geom_line(aes(group = simulation), alpha = 0.1) +
+#   geom_line(data = target_distribution, color = "red", linetype = 2) +
+#   facet_wrap(vars(admission_age))
+
+for (age in 0:16) {
+  print(ggplot(simulated_cdf %>% filter(admission_age == age), aes(duration_group, quantile)) +
+    geom_line(aes(group = simulation), alpha = 0.1) +
+    geom_line(data = target_cdf %>% filter(admission_age == age), color = "red", linetype = 2) +
+    facet_wrap(vars(admission_age))
+    )
+}
+
+target_distribution %>%
+  inner_join(age_out_proportions) %>%
+  mutate(quantile = quantile * (1 - p))
+
+
+for (age in 0:16) {
+  print(ggplot(simulated_cdf %>% filter(admission_age == age), aes(duration_group, quantile)) +
+    geom_line(aes(group = simulation), alpha = 0.1) +
+    geom_line(data = target_distribution %>%
+                inner_join(age_out_proportions) %>%
+                mutate(quantile = quantile * (1 - p)) %>%
+                filter(admission_age == age), color = "red", linetype = 2) +
+    facet_wrap(vars(admission_age))
+    )
+}
+
+
+```
+Interested particularly at what's going on at age 5. Why does it seem like simulated cases are either very short or very long with nothing in between?
+
+```{r}
+
+candidate_duration_groups <- dbGetQuery(conn, "SELECT admission_age, duration_group, COUNT(*) AS density
+                                  FROM mastodon.fuzzy_periods
+                                  WHERE provenance = 'S'
+                                  AND admission_age = 5
+                                  GROUP BY admission_age, duration_group")
+
+ print(ggplot(candidate_duration_groups, aes(duration_group, density)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(vars(admission_age), scales = "free_y"))
+  
+target_duration_groups <- dbGetQuery(conn, "SELECT admission_age, duration_group, density
+                                  FROM mastodon.target_distribution
+                                  WHERE admission_age = 5")
+
+print(ggplot(target_duration_groups, aes(duration_group, density)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(vars(admission_age), scales = "free_y"))
+
+
+simulated_candidates_5 <- dbGetQuery(conn, "SELECT duration, reject_ratio
+                                  FROM mastodon.simulated_candidates
+                                  WHERE admission_age = 5")
+
+simulated_candidates_5 <- simulated_candidates_5 %>%
+  mutate(max_reject_ratio = max(reject_ratio))
+
+print(ggplot(simulated_candidates_5 %>%
+               mutate(duration_group = duration %/% 7) %>%
+               group_by(duration_group) %>%
+               dplyr::summarise(density = n()), aes(duration_group, density)) +
+  geom_bar(stat = "identity"))
+
+sampled_candidates_5 <- sample_n(simulated_candidates_5, 25000000, replace = TRUE) %>%
+  filter(runif(nrow(.)) <= reject_ratio / max_reject_ratio) %>%
+  mutate(duration_group = duration %/% 7) %>%
+  group_by(duration_group) %>%
+  dplyr::summarise(density = n())
+
+print(ggplot(sampled_candidates_5, aes(duration_group, density)) +
+  geom_bar(stat = "identity"))
+
+## Let's go back a step:
+
+query <- "WITH source_periods AS (
+  -- Update source periods if necessary
+  SELECT *
+  FROM mastodon.fuzzy_periods
+  WHERE provenance = 'S'
+),target_distribution AS (
+  -- Update target if necessary
+  SELECT * FROM mastodon.target_distribution
+),candidate_distribution AS (
+  SELECT admission_age, duration_group, COUNT(*) AS density
+  FROM source_periods
+  GROUP BY admission_age, duration_group
+),reject_proportions AS (
+  SELECT t.admission_age, t.duration_group, t.density / c.density AS reject_ratio
+  FROM target_distribution t
+  LEFT JOIN candidate_distribution c
+  ON c.admission_age = t.admission_age
+  AND c.duration_group = t.duration_group
+)SELECT sp.*, rp.reject_ratio
+FROM source_periods sp
+INNER JOIN reject_proportions rp
+ON sp.admission_age = rp.admission_age
+AND sp.duration_group = rp.duration_group
+AND sp.admission_age = 5"
+
+source_candidates_5 <- dbGetQuery(conn, query) %>%
+  mutate(max_reject_ratio = max(reject_ratio))
+
+sampled_candidates_5 <- sample_n(source_candidates_5, nrow(source_candidates_5), replace = FALSE) %>%
+  filter(runif(nrow(.)) * 0.1 <= reject_ratio / max_reject_ratio) %>%
+  mutate(duration_group = duration %/% 7) %>%
+  group_by(duration_group) %>%
+  dplyr::summarise(density = n())
+
+print(ggplot(sampled_candidates_5, aes(duration_group, density)) +
+  geom_bar(stat = "identity"))
+
+```
+```{r}
+episodes_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/scc-episodes-2019-03-31-rewind-1yr-train-3yr-project-5yr-runs-100-seed-42-uniform-resampling.csv"
+
+projected_episodes <- read.csv(episodes_csv) %>%
+  group_by(ID, Simulation) %>%
+  slice(1)
+
+simulated_cdf <- projected_episodes %>%
+  filter(Provenance == "S") %>%
+  # filter(year_diff(birthday, end) < 18) %>%
+  rename(admission_age = Admission.Age, duration = Period.Duration, simulation = Simulation) %>%
+  group_by(simulation, admission_age) %>%
+  mutate(duration_group = duration %/% 7) %>%
+  mutate(quantile = ecdf(duration_group)(duration_group)) %>%
+  dplyr::select(simulation, admission_age, duration_group, quantile)
+
+target_cdf <- survival_data4 %>%
+  group_by(admission_age) %>%
+  mutate(duration_group = fuzzed_duration %/% 7) %>%
+  mutate(quantile = ecdf(duration_group)(duration_group))
+  
+
+# ggplot(simulated_cdf, aes(duration_group, quantile)) +
+#   geom_line(aes(group = simulation), alpha = 0.1) +
+#   geom_line(data = target_distribution, color = "red", linetype = 2) +
+#   facet_wrap(vars(admission_age))
+
+for (age in 0:16) {
+  print(ggplot(simulated_cdf %>% filter(admission_age == age), aes(duration_group, quantile)) +
+    geom_line(aes(group = simulation), alpha = 0.1) +
+    geom_line(data = target_cdf %>% filter(admission_age == age), color = "red", linetype = 2) +
+    facet_wrap(vars(admission_age))
+    )
+}
+
+target_distribution %>%
+  inner_join(age_out_proportions) %>%
+  mutate(quantile = quantile * (1 - p))
+
+
+for (age in 0:16) {
+  print(ggplot(simulated_cdf %>% filter(admission_age == age), aes(duration_group, quantile)) +
+    geom_line(aes(group = simulation), alpha = 0.1) +
+    geom_line(data = target_distribution %>%
+                inner_join(age_out_proportions) %>%
+                mutate(quantile = quantile * (1 - p)) %>%
+                filter(admission_age == age), color = "red", linetype = 2) +
+    facet_wrap(vars(admission_age))
+    )
+}
+```
+
+
+```{r}
+
+
+for (age in 0:17) {
+  print(rbind(projected_episodes %>%
+  filter(Provenance == "S") %>%
+  filter(Admission.Age == age) %>%
+  mutate(age_exit = day_diff(birthday, end)) %>%
+  dplyr::select(age_exit) %>%
+  mutate( label = "Simulated", admission_age = age),
+  survival_data4 %>%
+  filter(admission_age == age) %>%
+  mutate(age_exit = day_diff(birthday, period_end)) %>%
+  dplyr::select(age_exit) %>%
+  mutate( label = "Survival", admission_age = age)
+  ) %>%
+  ggplot(aes(age_exit)) + geom_histogram(bins = 200) +
+  facet_grid(vars(admission_age), vars(label)))
+}
+
+
+
+```
+
+```{r}
+for (age in 0:17) {
+  print(survival_data4 %>%
+    filter(admission_age == age) %>%
+    mutate(age_exit = day_diff(birthday, period_end)) %>%
+    ggplot(aes(age_exit)) + geom_histogram(bins = 200) +
+    facet_wrap(vars(admission_age)))
+}
+
+```
+
+# Stop here
+
+```{r}
+
+dates <- seq(as.Date("2015-01-01"), project_from + years(project_yrs), by = "week")
+length(dates)
+#dates <- dates[1:50]
+
+in_cic <- projected_episodes %>%
+  inner_join(data.frame(date = dates), by = character()) %>%
+  filter(start <= date & end >= date) %>%
+  mutate(age = year_diff(birthday, date)) %>%
+  mutate(source = if_else(year_diff(birthday, start) < age, "Aged in", "Joined")) %>%
+  group_by(date, age, source, Simulation) %>%
+  summarise(n = n()) %>%
+  summarise(count = median(n))
+
+out_cic <- projected_episodes %>%
+  inner_join(data.frame(date = dates), by = character()) %>%
+  filter(start <= date & end >= date) %>%
+  mutate(age = year_diff(birthday, date)) %>%
+  mutate(source = "Joiner") %>%
+  group_by(age, source, Simulation, ID) %>%
+  dplyr::summarise(min_date = min(date)) %>%
+  inner_join(data.frame(date = dates), by = character()) %>%
+  filter(min_date < date) %>%
+  group_by(date, age, source, Simulation) %>%
+  dplyr::summarise(n = n()) %>%
+  dplyr::summarise(count = as.integer(median(n)))
+
+colours <- tableau_color_pal("Tableau 20")(3)
+colours[3] <- NA
+names(colours) <- c("Aged in", "Joined", "Joiner")
+
+for (a in 0:17) {
+  print(rbind(in_cic, out_cic) %>%
+  filter(age == a) %>%
+  ggplot(aes(date, count, fill = source)) +
+  geom_bar(stat = "identity") +
+  geom_vline(xintercept = as.Date("2019-03-31"), colour = "orange", linetype = 2) +
+  facet_wrap(vars(age)) +
+  scale_fill_manual(values = colours))
+}
+
+
+ for (test.age in c(17)) {
+    by_age <- data.frame(date = c(), variable = c(), value = c())
+    for (date in dates) {
+      date <- as.Date(date)
+      in.cic <- projected_episodes %>%
+        filter(Start <= date & (is.na(End) | End >= date)) %>%
+        mutate(Age = year_diff(Birthday, date)) %>%
+        filter(Age == test.age) %>%
+        group_by(Placement, Simulation) %>%
+        summarise(n = n()) %>%
+        summarise(count = mean(n))
+      
+      joiners <- projected_episodes %>%
+        filter(Start <= date & Admission.Age == test.age) %>%
+        group_by(Simulation) %>%
+        summarise(n = n()) %>%
+        summarise(count = mean(n))
+      
+      res <- data.frame(date = c(date), variable = c(in.cic$Placement, "Joined"), value = c(in.cic$count, joiners$count))
+      
+      by_age <- rbind(by_age, res)
+    }
+    by_age[by_age$variable == "Joined",]$value <- by_age[by_age$variable == "Joined",]$value - min(by_age[by_age$variable == "Joined",]$value)
+    n_factors <- length(unique(by_age$variable))
+    by_age$variable <- factor(by_age$variable, levels = rev(c("Joined", all_placements)))
+    cols <- colours
+    cols[n_factors] <- NA
+    print(ggplot(by_age, aes(x = date, y = value, fill = variable)) +
+            geom_vline(aes(xintercept = project_from), colour = "black", linetype = 2) +
+            geom_bar(stat = "identity", position = "stack") +
+            scale_fill_manual(values = cols) +
+            theme_mastodon +
+            labs(fill = "Age", title = test.age, x = "Date", y = "Cumulative Count"))
+ }
+
+```
+
+```{r}
+dates <- seq(as.Date("2015-01-01"), project_from + years(project_yrs), by = "week")
+
+
+
+in_cic <- projected_episodes %>%
+  inner_join(data.frame(snapshot_date = dates), by = character()) %>%
+  filter(start < snapshot_date & end >= snapshot_date) %>%
+  mutate(age = year_diff(birthday, snapshot_date)) %>%
+  mutate(source = if_else(year_diff(birthday, start) < age, "Aged in", "Joined")) %>%
+  group_by(snapshot_date, age, source, Simulation) %>%
+  dplyr::summarise(count = n(), .groups = "drop_last") %>%
+  group_by(snapshot_date, age, source) %>%
+  dplyr::summarise(count = median(count), .groups = "drop_last")
+
+
+out_cic <- projected_episodes %>%
+  inner_join(data.frame(snapshot_date = dates), by = character()) %>%
+  filter(start < snapshot_date & end >= snapshot_date) %>%
+  mutate(age = year_diff(birthday, snapshot_date)) %>%
+  mutate(source = "Joiner") %>%
+  group_by(age, source, Simulation, ID) %>%
+  dplyr::summarise(min_date = min(snapshot_date), .groups = "drop_last") %>%
+  inner_join(data.frame(snapshot_date = dates), by = character()) %>%
+  filter(min_date <= snapshot_date) %>%
+  group_by(snapshot_date, age, source, Simulation) %>%
+  dplyr::summarise(count = n(), .groups = "drop_last") %>%
+  group_by(snapshot_date, age, source) %>%
+  dplyr::summarise(count = as.integer(median(count)), .groups = "drop_last")
+
+colours <- tableau_color_pal("Tableau 20")(3)
+colours[3] <- NA
+names(colours) <- c("Aged in", "Joined", "Joiner")
+
+pdf("/Users/henry/Desktop/cic-age-snapshot-rate.pdf")
+for (a in 0:17) {
+  print(rbind(in_cic, out_cic) %>% filter(age == a) %>%
+    ggplot(aes(snapshot_date, count, fill = source)) +
+    geom_bar(stat = "identity") +
+    geom_vline(xintercept = as.Date("2019-03-31"), colour = "orange", linetype = 2) +
+    facet_wrap(vars(age)) +
+    scale_fill_manual(values = colours, limits = c("Aged in", "Joined")) +
+    labs(x = "Date", y = "Cumulative Count", fill = "Means of arrival"))
+}
+dev.off()
+
+pdf("/Users/henry/Desktop/cic-age-snapshot.pdf")
+for (a in 0:17) {
+  print(rbind(in_cic) %>%
+  filter(age == a) %>%
+  ggplot(aes(snapshot_date, count, fill = source)) +
+  geom_bar(stat = "identity") +
+  geom_vline(xintercept = as.Date("2019-03-31"), colour = "orange", linetype = 2) +
+  facet_wrap(vars(age)) +
+  scale_fill_manual(values = colours, limits = c("Aged in", "Joined")) +
+  labs(x = "Date", y = "Count", fill = "Means of arrival"))
+}
+dev.off()
 
 ```
 
@@ -644,41 +1367,109 @@ WITH candidate_projected_distribution AS (
   
   
   
+  CREATE TABLE mastodon.projected_candidates AS
+WITH period_distributions AS (
+  SELECT id, admission_age, duration_group, COUNT(*) AS density
+  FROM mastodon.fuzzy_periods
+  GROUP BY id, admission_age, duration_group
+),
+max_ratio AS (
+  SELECT id, MAX(tpd.density / pd.density) AS max_ratio
+  FROM period_distributions pd
+  JOIN mastodon.target_projected_distribution tpd
+  ON pd.admission_age = tpd.admission_age
+  AND pd.duration_group = tpd.duration_group
+  GROUP BY id
+),
+samples AS (
+  SELECT fp.*, pd.density AS candidate_density, tpd.density AS target_density, mr.max_ratio AS max_ratio
+  FROM mastodon.fuzzy_periods fp
+  INNER JOIN period_distributions pd
+  ON fp.id = pd.id
+  AND fp.admission_age = pd.admission_age
+  AND fp.duration_group = pd.duration_group
+  INNER JOIN mastodon.target_projected_distribution tpd
+  ON fp.admission_age = tpd.admission_age
+  AND fp.duration_group = tpd.duration_group
+  INNER JOIN max_ratio mr
+  ON fp.id = mr.id
+  WHERE fp.provenance = 'P'
+),
+filtered_samples AS (
+  SELECT *
+  FROM samples
+  WHERE random() * 0.05 <= target_density / (candidate_density * max_ratio)
+),
+new_candidate_density AS (
+  SELECT id, admission_age, duration_group, COUNT(*) AS density
+  FROM filtered_samples
+  GROUP BY id, admission_age, duration_group
+)
+SELECT s.provenance, s.id, s.sample_index, s.admission_age, s.admission_age_days, s.duration, s.duration_group, s.episodes_edn, tpd.density / d.density AS reject_ratio
+FROM filtered_samples s
+INNER JOIN new_candidate_density d
+ON s.id = d.id
+AND s.admission_age = d.admission_age
+AND s.duration_group = d.duration_group
+INNER JOIN mastodon.target_projected_distribution tpd
+ON s.admission_age = tpd.admission_age
+AND s.duration_group = tpd.duration_group;
+  
+-- Update destination if necessary
+CREATE TABLE mastodon.simulated_candidates AS
+WITH source_periods AS (
+  -- Update source periods if necessary
+  SELECT *
+  FROM mastodon.fuzzy_periods
+  WHERE provenance = 'S'
+),
+target_distribution AS (
+  -- Update target if necessary
+  SELECT * FROM mastodon.target_distribution
+),
+candidate_distribution AS (
+  SELECT admission_age, duration_group, COUNT(*) AS density
+  FROM source_periods
+  GROUP BY admission_age, duration_group
+),
+reject_proportions AS (
+  SELECT t.admission_age, t.duration_group, t.density / c.density AS reject_ratio
+  FROM target_distribution t
+  LEFT JOIN candidate_distribution c
+  ON c.admission_age = t.admission_age
+  AND c.duration_group = t.duration_group
+),
+reject_constants AS (
+  SELECT admission_age, MAX(reject_ratio) AS max_reject_ratio
+  FROM reject_proportions
+  GROUP BY admission_age
+),
+sampled_periods AS (
+  SELECT fp.*
+  FROM source_periods fp
+  INNER JOIN reject_proportions rp
+  ON fp.admission_age = rp.admission_age
+  AND fp.duration_group = rp.duration_group
+  INNER JOIN reject_constants rc
+  ON fp.admission_age = rc.admission_age
+  WHERE random() * 0.1 <= rp.reject_ratio / rc.max_reject_ratio
+),
+updated_candidate_distribution AS (
+  SELECT admission_age, duration_group, COUNT(*) AS density
+  FROM sampled_periods
+  GROUP BY admission_age, duration_group
+),
+updated_reject_proportions AS (
+  SELECT c.admission_age, c.duration_group, t.density / c.density AS reject_ratio
+  FROM target_distribution t
+  LEFT JOIN updated_candidate_distribution c
+  ON c.admission_age = t.admission_age
+  AND c.duration_group = t.duration_group
+)
+SELECT fp.*, rp.reject_ratio
+FROM sampled_periods fp
+INNER JOIN updated_reject_proportions rp
+ON fp.admission_age = rp.admission_age
+AND fp.duration_group = rp.duration_group;
   
 ```
-
-
-This is our target distribution. How did we do at matching it?
-
-```{r}
-episodes_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2020-12-04/scc-episodes-2019-08-13-rewind-1yr-train-3yr-project-5yr-runs-100-seed-42-universe.csv"
-
-episodes_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2020-12-04/scc-episodes-2020-03-31-rewind-0yr-train-3yr-project-5yr-runs-100-seed-42-5-trended.csv"
-```
-
-```{r}
-episodes <- read.csv(episodes_csv)
-
-simulated_cdf <- episodes %>%
-  filter(Provenance == "S") %>%
-  group_by(ID) %>%
-  slice(1) %>%
-  rename(admission_age = Admission.Age, duration = Period.Duration, simulation = Simulation) %>%
-  group_by(simulation, admission_age) %>%
-  mutate(duration_group = duration %/% 7) %>%
-  mutate(quantile = ecdf(duration_group)(duration_group)) %>%
-  dplyr::select(simulation, admission_age, duration_group, quantile)
-
-ggplot(simulated_cdf, aes(duration_group, quantile)) +
-  geom_line(aes(group = simulation), alpha = 0.1) +
-  geom_line(data = target_distribution, color = "red", linetype = 2) +
-  facet_wrap(vars(admission_age))
-
-for (age in 0:17) {
-  print(ggplot(simulated_cdf %>% filter(admission_age == age), aes(duration_group, quantile)) +
-    geom_line(aes(group = simulation), alpha = 0.5) +
-    geom_line(data = target_distribution %>% filter(admission_age == age), color = "red", linetype = 2))
-}
-
-```
-

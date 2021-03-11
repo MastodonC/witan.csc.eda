@@ -63,6 +63,10 @@ year_diff <- function(start, stop) {
   as.numeric(difftime(stop, start, units = "days")) %/% 365.25
 }
 
+quarter_diff <- function(start, stop) {
+  as.numeric(difftime(stop, start, units = "days")) %/% 91.3125
+}
+
 month_diff <- function(start, stop) {
   as.numeric(difftime(stop, start, units = "days")) %/% 30
 }
