@@ -13,18 +13,18 @@ library(readxl)
 library(janitor)
 library(tidyverse)
 
-actual_episodes_file <- "/Users/Seb/code/witan.cic/data/scc/2021-02-11/suffolk-scrubbed-episodes-20201203.csv"
-projected_episodes_file <- "/Users/Seb/code/witan.cic/data/scc/2021-02-11/scc-episodes-2019-03-31-rewind-1yr-train-3yr-project-5yr-runs-100-seed-42-age-out.csv"
-output_file <- '2021-02-11-Suffolk-CiC-projection-report-1.pdf'
-output_file_joiners <- 'output-2.pdf'
-project_from <- as.Date("2020-03-31")
+actual_episodes_file <- "/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/suffolk-scrubbed-episodes-20210219.csv"
+projected_episodes_file <- "/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/scc-episodes-2019-03-31-rewind-1yr-train-3yr-project-5yr-runs-100-seed-42-uniform-resampling.csv"
+output_file <- '/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/2021-02-24-Suffolk-CiC-projection-report-1.pdf'
+output_file_joiners <- '/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/output-2.pdf'
+project_from <- as.Date("2019-03-31")
 output_file_layercake <- ''
-project_yrs <- 2
+project_yrs <- 5
 train_from <- project_from - years(3)
 projection_end <- project_from + years(project_yrs)
 results_date <- "2021-03-11"
 
-cic_data_file <- '~/Downloads/2021-02-12 CiC Data for Chris Feb 20 sent.xlsx'
+cic_data_file <- '/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/2021-02-12 CiC Data for Chris Feb 20 sent.xlsx'
 cic_data <- read_xlsx(cic_data_file)
 cic_data <- slice(cic_data, c(3, 44:61))
 colnames(cic_data)<-c("?..", "30.04.18","31.05.18", "30.06.18", "31.07.18", "31.08.18", "30.09.18", "31.10.18", "30.11.18", "31.12.18", "31.01.19", "28.02.19", "31.03.19", "30.04.19", "31.05.19", "30.06.19", "31.07.19", "31.08.19", "30.09.19", "31.10.19", "30.11.19", "31.12.19", "31.01.20", "29.02.20", "31.03.20", "30.04.20", "31.05.20", "30.06.20", "31.07.20", "31.08.20", "30.09.20", "31.10.20", "30.11.20", "31.12.20", "31.01.21")
@@ -70,9 +70,9 @@ output_all_charts <- function() {
 
   placements <- (episodes %>% group_by(placement) %>% summarise(n = n()) %>% arrange(desc(n)))$placement
   placement_categories <- (episodes %>% group_by(placement_category) %>% summarise(n = n()) %>% arrange(desc(n)))$placement_category
-  
-  colours <- c("#4E79A7", "#F28E2B", "grey", "#F28E2B", "#4E79A7", "black")
-  names(colours) <- c("lower.ci", "q1", "median", "q3", "upper.ci", "actual")
+  tableau_color_pal("Tableau 20")(20)
+  colours <- c("#4E79A7", "#F28E2B", "grey", "#F28E2B", "#4E79A7", "black", "#F28E2B")
+  names(colours) <- c("lower.ci", "q1", "median", "q3", "upper.ci", "actual", "counts")
   
   projected <- data.frame(date = c(), lower.ci = c(), q1 = c(), median = c(), q3 = c(), upper.ci = c())
   for (date in dates) {
@@ -107,9 +107,10 @@ output_all_charts <- function() {
           geom_line(data = projected, aes(x = date, y = median), linetype = 2) +
           geom_ribbon(data = projected, aes(x = date, ymin = lower.ci, ymax = upper.ci), fill = "gray", alpha = 0.3) +
           geom_ribbon(data = projected, aes(x = date, ymin = q1, ymax = q3), fill = "gray", alpha = 0.3) +
-          geom_vline(xintercept = train_from, color = "red", linetype = 2) +
+          geom_vline(xintercept = train_from, color = "black", linetype = 3, alpha = 0.5) +
+          geom_vline(xintercept = project_from, color = "black", linetype = 3, alpha = 0.5) +
           theme_mastodon +
-          #scale_color_manual(values = colours) +
+          scale_color_manual(values = colours) +
           labs(title = "CiC", x = "Date", y = "CiC")
         )
   
@@ -142,7 +143,8 @@ output_all_charts <- function() {
             geom_line(data = projected, aes(x = date, y = median), linetype = 2) +
             geom_ribbon(data = projected, aes(x = date, ymin = lower.ci, ymax = upper.ci), fill = "gray", alpha = 0.3) +
             geom_ribbon(data = projected, aes(x = date, ymin = q1, ymax = q3), fill = "gray", alpha = 0.3) +
-            geom_vline(xintercept = train_from, color = "red", linetype = 2) +
+            geom_vline(xintercept = train_from, color = "black", linetype = 3, alpha = 0.5) +
+            geom_vline(xintercept = project_from, color = "black", linetype = 3, alpha = 0.5) +
             theme_mastodon +
             scale_color_manual(values = colours) +
             labs(title = paste0(test.placement), x = "Date", y = "CiC"))
@@ -180,7 +182,8 @@ output_all_charts <- function() {
     scale_fill_manual(values = tableau_color_pal("Tableau 20")(20)) +
     theme_mastodon +
     labs(x = "Date", y = "Count", title = "% of children in care by age group") +
-    geom_vline(xintercept = project_from, color = "red", linetype = 2))
+    geom_vline(xintercept = train_from, color = "black", linetype = 3, alpha = 0.5) +
+    geom_vline(xintercept = project_from, color = "black", linetype = 3, alpha = 0.5))
 
 
   for (test.age in 0:17) {
@@ -220,9 +223,10 @@ output_all_charts <- function() {
             geom_line(data = projected, aes(x = date, y = median), linetype = 2) +
             geom_ribbon(data = projected, aes(x = date, ymin = lower.ci, ymax = upper.ci), fill = "gray", alpha = 0.3) +
             geom_ribbon(data = projected, aes(x = date, ymin = q1, ymax = q3), fill = "gray", alpha = 0.3) +
-            geom_vline(xintercept = train_from, color = "red", linetype = 2) +
+            geom_vline(xintercept = train_from, color = "black", linetype = 3, alpha = 0.5) +
+            geom_vline(xintercept = project_from, color = "black", linetype = 3, alpha = 0.5) +
             theme_mastodon +
-            #scale_color_manual(values = colours) +
+            scale_color_manual(values = colours) +
             labs(title = paste0("Age ", test.age), x = "Date", y = "CiC"))
   }
   
@@ -327,7 +331,8 @@ output_all_charts <- function() {
     theme_mastodon +
     labs(x = "Date", y = "Count", title = "Monthly counts + 12 month moving average") +
       coord_cartesian(xlim = c(min(dates), max(dates))) +
-      geom_vline(xintercept = project_from, color = "red", linetype = 2))
+      geom_vline(xintercept = train_from, color = "black", linetype = 3, alpha = 0.5) +
+      geom_vline(xintercept = project_from, color = "black", linetype = 3, alpha = 0.5))
 
   
   print(ggplot() +
@@ -335,7 +340,8 @@ output_all_charts <- function() {
           geom_line(data = join_projected_ci, aes(x = date, y = median), linetype = 2) +
           geom_ribbon(data = join_projected_ci, aes(x = date, ymin = lower.ci, ymax = upper.ci), fill = "gray", alpha = 0.3) +
           geom_ribbon(data = join_projected_ci, aes(x = date, ymin = q1, ymax = q3), fill = "gray", alpha = 0.3) +
-          geom_vline(xintercept = train_from, color = "red", linetype = 2) +
+          geom_vline(xintercept = train_from, color = "black", linetype = 3, alpha = 0.5) +
+          geom_vline(xintercept = project_from, color = "black", linetype = 3, alpha = 0.5) +
           theme_mastodon +
           scale_color_manual(values = colours) +
           labs(title = "Joiners per month", x = "Date", y = "CiC") +
@@ -346,7 +352,8 @@ output_all_charts <- function() {
           geom_line(data = leave_projected_ci, aes(x = date, y = median), linetype = 2) +
           geom_ribbon(data = leave_projected_ci, aes(x = date, ymin = lower.ci, ymax = upper.ci), fill = "gray", alpha = 0.3) +
           geom_ribbon(data = leave_projected_ci, aes(x = date, ymin = q1, ymax = q3), fill = "gray", alpha = 0.3) +
-          geom_vline(xintercept = train_from, color = "red", linetype = 2) +
+          geom_vline(xintercept = train_from, color = "black", linetype = 3, alpha = 0.5) +
+          geom_vline(xintercept = project_from, color = "black", linetype = 3, alpha = 0.5) +
           theme_mastodon +
           scale_color_manual(values = colours) +
           labs(title = "Leavers per month", x = "Date", y = "CiC") +
@@ -435,7 +442,8 @@ output_all_charts <- function() {
       theme_mastodon +
       labs(x = "Date", y = "Count", title = paste(strwrap(paste("Age", test.age, "joiners, leavers & net growth + 12 period moving average"), width = 30), collapse = "\n")) +
       coord_cartesian(xlim = c(min(dates), max(dates))) +
-        geom_vline(xintercept = project_from, color = "red", linetype = 2))
+      geom_vline(xintercept = train_from, color = "black", linetype = 3, alpha = 0.5) +
+      geom_vline(xintercept = project_from, color = "black", linetype = 3, alpha = 0.5))
     
 
     print(ggplot() +
@@ -443,7 +451,8 @@ output_all_charts <- function() {
             geom_line(data = join_projected_ci, aes(x = date, y = median), linetype = 2) +
             geom_ribbon(data = join_projected_ci, aes(x = date, ymin = lower.ci, ymax = upper.ci), fill = "gray", alpha = 0.3) +
             geom_ribbon(data = join_projected_ci, aes(x = date, ymin = q1, ymax = q3), fill = "gray", alpha = 0.3) +
-            geom_vline(xintercept = train_from, color = "red", linetype = 2) +
+            geom_vline(xintercept = train_from, color = "black", linetype = 3, alpha = 0.5) +
+            geom_vline(xintercept = project_from, color = "black", linetype = 3, alpha = 0.5) +
             theme_mastodon +
             scale_color_manual(values = colours) +
             labs(title = paste0("Age ", test.age, " joiners per month"), x = "Date", y = "CiC") +
@@ -454,7 +463,8 @@ output_all_charts <- function() {
             geom_line(data = leave_projected_ci, aes(x = date, y = median), linetype = 2) +
             geom_ribbon(data = leave_projected_ci, aes(x = date, ymin = lower.ci, ymax = upper.ci), fill = "gray", alpha = 0.3) +
             geom_ribbon(data = leave_projected_ci, aes(x = date, ymin = q1, ymax = q3), fill = "gray", alpha = 0.3) +
-            geom_vline(xintercept = train_from, color = "red", linetype = 2) +
+            geom_vline(xintercept = train_from, color = "black", linetype = 3, alpha = 0.5) +
+            geom_vline(xintercept = project_from, color = "black", linetype = 3, alpha = 0.5) +
             theme_mastodon +
             scale_color_manual(values = colours) +
             labs(title = paste0("Age ", test.age, " leavers per month"), x = "Date", y = "CiC") +
@@ -552,7 +562,8 @@ plot_summary <- function(project_from, project_yrs) {
   }
   projected$joiners.count <- projected$joiners.count - min(projected$joiners.count)
   print(ggplot(projected, aes(x = date)) +
-          geom_vline(aes(xintercept = project_from, colour = "#444444"), linetype = 2) +
+          geom_vline(xintercept = train_from, color = "black", linetype = 3, alpha = 0.5) +
+          geom_vline(xintercept = project_from, color = "black", linetype = 3, alpha = 0.5) + +
           geom_ribbon(alpha = 0.15, aes(fill = colours[1], ymin = joiners.count / 2.0, ymax = (joiners.count + cic.count) / 2.0, x = date)) +
           geom_line(aes(x = date, y = cic.count, colour = colours[1])) +
           geom_line(aes(x = date, y = median.open.duration,  colour = colours[2])) +
@@ -629,7 +640,8 @@ plot_summary <- function(project_from, project_yrs) {
     cols <- colours
     cols[n_factors] <- NA
     print(ggplot(by_age, aes(x = date, y = value, fill = variable)) +
-            geom_vline(aes(xintercept = project_from), colour = "black", linetype = 2) +
+            geom_vline(xintercept = train_from, color = "black", linetype = 3, alpha = 0.5) +
+            geom_vline(xintercept = project_from, color = "black", linetype = 3, alpha = 0.5) +
             geom_bar(stat = "identity", position = "stack") +
             scale_fill_manual(values = cols) +
             theme_mastodon +
@@ -665,7 +677,8 @@ plot_summary <- function(project_from, project_yrs) {
     cols <- colours
     cols[n_factors] <- NA
     print(ggplot(by_age, aes(x = date, y = value, fill = variable)) +
-            geom_vline(aes(xintercept = project_from), colour = "black", linetype = 2) +
+            geom_vline(xintercept = train_from, color = "black", linetype = 3, alpha = 0.5) +
+            geom_vline(xintercept = project_from, color = "black", linetype = 3, alpha = 0.5) +
             geom_bar(stat = "identity", position = "stack") +
             scale_fill_manual(values = cols) +
             theme_mastodon +
@@ -702,7 +715,8 @@ plot_summary <- function(project_from, project_yrs) {
     cols <- colours
     cols[n_factors] <- NA
     print(ggplot(by_age, aes(x = date, y = value, fill = variable)) +
-            geom_vline(aes(xintercept = project_from), colour = "black", linetype = 2) +
+            geom_vline(xintercept = train_from, color = "black", linetype = 3, alpha = 0.5) +
+            geom_vline(xintercept = project_from, color = "black", linetype = 3, alpha = 0.5) +
             geom_bar(stat = "identity", position = "stack") +
             scale_fill_manual(values = cols) +
             theme_mastodon +
