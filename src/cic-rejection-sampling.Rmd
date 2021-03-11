@@ -136,7 +136,7 @@ survival_data4 <- survival_data3 %>%
          event = event | aged_out, # All aged out children are leavers
          duration = if_else(aged_out, max_duration, duration),
          fuzzed_duration = if_else(aged_out, max_duration, fuzzed_duration),
-         fuzzed_age = fuzzed_duration + day_diff(birthday, period_start))
+         fuzzed_exit_age = fuzzed_duration + day_diff(birthday, period_start))
 
 ```
 
@@ -178,6 +178,29 @@ target_distribution <- quantiles %>%
 
 
 write.csv(target_distribution, file = output_csv, row.names = FALSE)
+```
+
+```{r}
+
+# Calculate probability that joiner of each age makes it past 17th birthday
+
+fit <- survfit(Surv(fuzzed_exit_age, event) ~ admission_age, data = survival_data4)
+quantiles <- reshape2::melt(stats::quantile(fit, probs = seq(0,0.9999,length.out = 10000))$quantile) %>%
+  mutate(join_age = as.integer(str_replace(Var1, "admission_age=", ""))) %>%
+  select(-1) %>%
+  as.data.frame
+colnames(quantiles) <- c("quantile", "exit_age", "admission_age")
+
+age_out_proportions <- quantiles %>%
+  group_by(admission_age) %>%
+  mutate(age_out_quantile = min(if_else(exit_age > 17 * 365.25, quantile, NA_real_), na.rm = TRUE)) %>%
+  mutate(p = age_out_quantile - quantile) %>%
+  group_by(admission_age, exit_age) %>%
+  summarise(p = (100 - min(p)) / 100.0) %>%
+  rename(current_age_days = exit_age)
+
+write.csv(age_out_proportions, file = age_out_proportions_output_csv, row.names = FALSE)
+
 ```
 
 ```{r}
@@ -425,26 +448,6 @@ for (age in 0:17){
 
 ```
 
-
-```{r}
-
-# Calculate probability that joiner of each age makes it past 17th birthday
-
-fit <- survfit(Surv(fuzzed_age, event) ~ admission_age, data = survival_data4)
-quantiles <- reshape2::melt(stats::quantile(fit, probs = seq(0,0.9999,length.out = 10000))$quantile) %>%
-  mutate(join_age = as.integer(str_replace(Var1, "admission_age=", ""))) %>%
-  select(-1) %>%
-  as.data.frame
-colnames(quantiles) <- c("quantile", "duration", "admission_age")
-
-age_out_proportions = quantiles %>%
-  filter(duration > 17 * 365.25) %>%
-  group_by(admission_age) %>%
-  summarise(p = (100 - min(quantile)) / 100.0)
-
-write.csv(age_out_proportions, file = age_out_proportions_output_csv, row.names = FALSE)
-
-```
 
 
 
