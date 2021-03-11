@@ -22,6 +22,7 @@ output_file_layercake <- ''
 project_yrs <- 2
 train_from <- project_from - years(3)
 projection_end <- project_from + years(project_yrs)
+results_date <- "2021-03-11"
 
 cic_data_file <- '~/Downloads/2021-02-12 CiC Data for Chris Feb 20 sent.xlsx'
 cic_data <- read_xlsx(cic_data_file)
@@ -45,7 +46,7 @@ output_all_charts <- function() {
 
   plot(0:10, type = "n", xaxt="n", yaxt="n", bty="n", xlab = "", ylab = "")
   text(5, 10, "Report 1", cex=2.5)
-  text(5, 8, "2021-02-11", cex=2.5)
+  text(5, 8, results_date, cex=2.5)
   text(5, 6, "Suffolk CiC Projection", cex=2.5)
   
   set.seed(5)
