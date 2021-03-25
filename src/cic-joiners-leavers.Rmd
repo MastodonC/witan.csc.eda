@@ -5,6 +5,9 @@ output: html_notebook
 ```{r}
 library(lubridate)
 library(dplyr)
+library(tidyr)
+library(reshape2)
+library(ggthemes)
 ```
 
 ```{r}
@@ -28,6 +31,8 @@ episodes_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/scc-episo
 
 ```{r}
 library(ggthemes)
+
+
 
 projected_periods_khjr <- read.csv(episodes_csv) %>%
   group_by(ID, Simulation) %>%
@@ -172,7 +177,8 @@ for (category in descriptions) {
   scale_fill_manual(values = tableau_color_pal("Tableau 20")(20)) +
   scale_colour_manual(values = tableau_color_pal("Tableau 20")(20)) +
   geom_ribbon(alpha = 0.3, colour = NA) +
-  geom_line(aes(y = m))
+  geom_line(aes(y = m)) +
+    facet_grid(vars(label), scales = "free_y")
   )
 }
 

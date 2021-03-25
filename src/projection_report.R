@@ -14,13 +14,14 @@ library(janitor)
 library(tidyverse)
 
 actual_episodes_file <- "/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/suffolk-scrubbed-episodes-20210219.csv"
-projected_episodes_file <- "/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/scc-episodes-2019-03-31-rewind-1yr-train-3yr-project-2yr-runs-100-seed-42-poisson-noise.csv"
-output_file <- '/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/2021-02-24-Suffolk-CiC-projection-report-1-poisson-noise.pdf'
-output_file_joiners <- '/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/output-2.pdf'
+projected_episodes_file <- "/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/scc-episodes-2019-03-31-rewind-1yr-train-3yr-project-5yr-runs-100-seed-42-periodic-joiner-sampling.csv"
+output_file <- '/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/2021-02-24-Suffolk-CiC-projection-report-1-periodic-joiner-sampling-no-trending.pdf'
+output_file_joiners <- '/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/2021-02-24-Suffolk-CiC-projection-report-2-periodic-joiner-sampling-no-trending.pdf'
+
 project_from <- as.Date("2019-03-31")
 output_file_layercake <- ''
-project_yrs <- 5
-train_from <- project_from - years(3)
+project_yrs <- 4
+train_from <- project_from - years(1)
 projection_end <- project_from + years(project_yrs)
 results_date <- "2021-03-11"
 
@@ -473,7 +474,6 @@ output_all_charts <- function() {
 }
 
 pdf(output_file, paper = "a4r")
-
 output_all_charts()
 dev.off()
 embed_fonts(file = output_file, outfile = output_file)
@@ -564,7 +564,7 @@ plot_summary <- function(project_from, project_yrs) {
   projected$joiners.count <- projected$joiners.count - min(projected$joiners.count)
   print(ggplot(projected, aes(x = date)) +
           geom_vline(xintercept = train_from, color = "black", linetype = 3, alpha = 0.5) +
-          geom_vline(xintercept = project_from, color = "black", linetype = 3, alpha = 0.5) + +
+          geom_vline(xintercept = project_from, color = "black", linetype = 3, alpha = 0.5) +
           geom_ribbon(alpha = 0.15, aes(fill = colours[1], ymin = joiners.count / 2.0, ymax = (joiners.count + cic.count) / 2.0, x = date)) +
           geom_line(aes(x = date, y = cic.count, colour = colours[1])) +
           geom_line(aes(x = date, y = median.open.duration,  colour = colours[2])) +
