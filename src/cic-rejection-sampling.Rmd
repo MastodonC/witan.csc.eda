@@ -3,11 +3,11 @@ title: "CiC Rejection Sampling"
 output: html_notebook
 ---
 
-This workbook is responsible for creating a target duration distribution for each join age.
+This workbook is responsible for creating some useful model inputs:
+* Creating a target duration distribution for each join age using survival analysis
+* Accounting for the effect of aging out (a dynamic which must be handled separately from survival analysis)
+* Creating model input files containing pre-calculated CiC periods which when sampled match the inferred target duration distribution
 
-We use this distribution for calculating rejection sampling proportions and also for comparing our outputs against.
-
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
 
 ```{r}
 library(lubridate)
@@ -69,27 +69,6 @@ data.frame(xs = c(data$report_date, data$ceased)) %>%
 
 noise <- 7
 
-binomial_noise <- Vectorize(function(val, max_val) {
-  p <- max(1.0 / max_val, min(1.0, val / max_val))
-  max(rbinom(n = 1, size = max_val %/% noise, prob = p) * noise, 1)
-})
-
-impute_birthday <- Vectorize(function(lower, upper) {
-  lower + days(as.integer(round(runif(1, 0, as.numeric(difftime(upper, lower, units = "days"))))))
-})
-
-eighteen_years_before <- function(date) {
-  if_else(day(date)==29 & month(date) == 2,
-    date + days(1) - years(18),
-    date - years(18))
-}
-
-eighteen_years_after <- function(date) {
-  if_else(day(date)==29 & month(date) == 2,
-    date + days(1) + years(18),
-    date + years(18))
-  }
-
 survival_data <- data %>%
   mutate(report_date = ymd(report_date),
          ceased = ymd(ceased)) %>%
@@ -113,8 +92,6 @@ survival_data2 <- survival_data %>%
          duration = if_else(event,
                             day_diff(period_start, period_end),
                             day_diff(period_start, extract_date)))
-
-binomial_noise(106, 106)
 
 # These cases violate one of more of our assumptions. We'll assume they left at 18.
 survival_data2 %>% filter(birthday_lower > birthday_upper)

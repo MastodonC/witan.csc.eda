@@ -14,9 +14,9 @@ library(janitor)
 library(tidyverse)
 
 actual_episodes_file <- "/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/suffolk-scrubbed-episodes-20210219.csv"
-projected_episodes_file <- "/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/scc-episodes-2019-03-31-rewind-1yr-train-3yr-project-5yr-runs-100-seed-42-periodic-joiner-sampling.csv"
-output_file <- '/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/2021-02-24-Suffolk-CiC-projection-report-1-periodic-joiner-sampling-no-trending.pdf'
-output_file_joiners <- '/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/2021-02-24-Suffolk-CiC-projection-report-2-periodic-joiner-sampling-no-trending.pdf'
+projected_episodes_file <- "/Users/henry/Mastodon C/witan.cic/data/scc/scc-episodes-2019-03-31-rewind-1yr-train-3yr-project-5yr-runs-100-seed-42-marginal-age-out-gdrive.csv"
+output_file <- '/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/2021-02-24-Suffolk-CiC-projection-report-1-poisson-noise-2.pdf'
+output_file_joiners <- '/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/2021-02-24-Suffolk-CiC-projection-report-2-poisson-noise-2.pdf'
 
 project_from <- as.Date("2019-03-31")
 output_file_layercake <- ''
@@ -114,7 +114,7 @@ output_all_charts <- function() {
           scale_color_manual(values = colours) +
           labs(title = "CiC", x = "Date", y = "CiC")
         )
-  
+
   for (test.placement in placements) {
     projected <- data.frame(date = c(), lower.ci = c(), q1 = c(), median = c(), q3 = c(), upper.ci = c())
     for (date in dates) {

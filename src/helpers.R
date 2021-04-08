@@ -1,5 +1,5 @@
-
 library(ggplot2)
+library(lubridate)
 
 chart_title <- function(title){
   paste(la_label, "-", title)
@@ -107,4 +107,142 @@ clamp <- Vectorize(function(x, lower, upper) {
   max(lower, min(upper, x))
 })
 
+binomial_noise <- Vectorize(function(val, max_val, noise) {
+  p <- max(1.0 / max_val, min(1.0, val / max_val))
+  max(rbinom(n = 1, size = max_val %/% noise, prob = p) * noise, 1)
+})
 
+impute_birthday <- Vectorize(function(lower, upper) {
+  lower + days(as.integer(round(runif(1, 0, as.numeric(difftime(upper, lower, units = "days"))))))
+})
+
+eighteen_years_before <- function(date) {
+  if_else(day(date)==29 & month(date) == 2,
+    date + days(1) - years(18),
+    date - years(18))
+}
+
+eighteen_years_after <- function(date) {
+  if_else(day(date)==29 & month(date) == 2,
+    date + days(1) + years(18),
+    date + years(18))
+}
+
+survival_data <- function(episodes) {
+  episodes %>%
+    mutate(report_date = ymd(report_date),
+           ceased = ymd(ceased)) %>%
+    group_by(period_id) %>%
+    dplyr::summarise(period_start = min(report_date),
+                     period_end = max(ceased),
+                     birth_month_beginning = ymd(paste0(DOB[1], "-01")),
+                     birth_month_end = birth_month_beginning + months(1) - days(1))
+}
+
+survival_data2 <- function(survival_data, extract_date) {
+  # We think the child aged out if they *could* have hit 18 years - 1 day given their birthday range
+  # That means if we assume the oldest they could be, did that cross 18 years - 1 day.
+  # That means if we take their earlier birthday, is it *at least* 18 years - 1 day.
+  survival_data %>%
+    mutate(birthday_lower = pmax(birth_month_beginning, eighteen_years_before(replace_na(period_end, extract_date))),
+           birthday_upper = pmin(birth_month_end, period_start),
+           # aged_out = year_diff(birth_month_beginning, replace_na(period_end, extract_date)) >= 18,
+           # Removing this period_end assignment - don't think we need it
+           # period_end = if_else(aged_out, eighteen_years_after(birthday_upper) - days(1), period_end),
+           event = !is.na(period_end),
+           duration = if_else(event,
+                              day_diff(period_start, period_end),
+                              day_diff(period_start, extract_date)))
+}
+
+# These cases violate one of more of our assumptions. We'll assume they left at 18.
+# survival_data2 %>% filter(birthday_lower > birthday_upper)
+
+survival_data3 <- function(survival_data2, noise) {
+  survival_data2 %>%
+    mutate(birthday_lower = pmin(birthday_lower, birthday_upper) # Only matters if there are age 18+ leavers above
+    ) %>%
+    inner_join(data.frame(n = 1:100), by = character()) %>%
+    mutate(birthday = as.Date(impute_birthday(birthday_lower, birthday_upper), origin = "1970-01-01"),
+           admission_age = as.factor(clamp(year_diff(birthday, period_start), 0, 17)),
+           max_duration = day_diff(period_start, eighteen_years_after(birthday)),
+           duration = pmin(duration, max_duration),
+           fuzzed_duration = binomial_noise(duration, max_duration, noise)
+    ) %>%
+    as.data.frame
+}
+
+survival_data4 <- function(survival_data3) {
+  survival_data3 %>%
+    mutate(aged_out = year_diff(birthday, period_start + days(fuzzed_duration)) >= 17, # Going to say no one leaves aged 17
+           event = event | aged_out, # All aged out children are leavers
+           duration = if_else(aged_out, max_duration, duration),
+           fuzzed_duration = if_else(aged_out, max_duration, fuzzed_duration),
+           fuzzed_exit_age = fuzzed_duration + day_diff(birthday, period_start))
+}
+
+age_categories <- c("Age 0", "Age 1-5", "Age 6-10", "Age 11-15", "Age 16", "Age 17")
+
+age_category <- function(age) {
+  case_when(age == 0 ~ age_categories[1],
+            age %in% 1:5 ~ age_categories[2],
+            age %in% 6:10 ~ age_categories[3],
+            age %in% 11:15 ~ age_categories[4],
+            age == 16 ~ age_categories[5],
+            age %in% 17:18 ~ age_categories[6],
+            TRUE ~ "Other")
+}
+
+labelled_episodes <- function(periods, date_range) {
+  data.frame(range_start = date_range) %>%
+    mutate(range_end = range_start + months(1) - 1)  %>%
+    inner_join(periods, by = character()) %>%
+    mutate(cic_start = pmax(period_start, range_start),
+           cic_end = pmin(period_end, range_end),
+           age_start = year_diff(birthday, cic_start),
+           age_end = year_diff(birthday, cic_end),
+           age_category_joined = age_category(year_diff(birthday, period_start)),
+           age_category_left = age_category(year_diff(birthday, period_end)),
+           age_category_start = age_category(age_start),
+           age_category_end = age_category(age_end),
+           joined = period_start >= range_start & period_start <= range_end,
+           left = period_end >= range_start & period_end <= range_end,
+           cic = period_start <= range_end & period_end >= range_start,
+           aged = cic & age_category_start != age_category_end)
+}
+
+joiners_leavers_net <- function(labelled_episodes) {
+  chart_data <- rbind(
+    cbind(labelled_episodes %>%
+            filter(joined) %>%
+            group_by(simulation, range_start, age_category_joined) %>%
+            rename(age_category = age_category_joined) %>%
+            summarise(n = n()),
+          label = "joiners"),
+    cbind(labelled_episodes %>%
+            filter(left) %>%
+            group_by(simulation, range_start, age_category_left) %>%
+            rename(age_category = age_category_left) %>%
+            summarise(n = n()),
+          label = "leavers"),
+    cbind(labelled_episodes %>%
+            filter(aged) %>%
+            group_by(simulation, range_start, age_category_end) %>%
+            rename(age_category = age_category_end) %>%
+            summarise(n = n()),
+          label = "aged-in"),
+    cbind(labelled_episodes %>%
+            filter(aged) %>%
+            group_by(simulation, range_start, age_category_start) %>%
+            rename(age_category = age_category_start) %>%
+            summarise(n = n()),
+          label = "aged-out")
+  ) %>%
+    complete(range_start, age_category, fill = list(n = 0))
+  rbind(chart_data,
+        dcast(simulation + range_start + age_category ~ label, value.var = "n", data = chart_data, fill = 0) %>%
+          mutate(net = joiners + `aged-in` - `aged-out` - leavers ) %>%
+          dplyr::select(simulation, range_start, age_category, net) %>%
+          rename(n = net) %>%
+          mutate(label = "net"))
+}

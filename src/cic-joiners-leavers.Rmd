@@ -8,6 +8,7 @@ library(dplyr)
 library(tidyr)
 library(reshape2)
 library(ggthemes)
+library(tidyquant)
 ```
 
 ```{r}
@@ -20,7 +21,7 @@ data$ceased <- ymd(data$ceased)
 
 
 ```{r}
-episodes_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/scc-episodes-2019-03-31-rewind-1yr-train-3yr-project-5yr-runs-100-seed-42.csv"
+episodes_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/scc-episodes-2019-03-31-rewind-1yr-train-3yr-project-5yr-runs-100-seed-42-periodic-joiner-sampling-no-trending.csv"
 
 # projected_episodes <- read.csv(episodes_csv) %>%
 #   group_by(ID, Simulation) %>%
@@ -30,104 +31,39 @@ episodes_csv <- "/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/scc-episo
 ```
 
 ```{r}
-library(ggthemes)
-
-
 
 projected_periods_khjr <- read.csv(episodes_csv) %>%
-  group_by(ID, Simulation) %>%
-  slice(1) %>%
-  dplyr::summarise(start = ymd(Period.Start), end = ymd(Period.End), birthday = ymd(Birthday), provenance = Provenance[1])
+  filter(Episode == 1) %>%
+  dplyr::mutate(period_start = ymd(Period.Start), period_end = ymd(Period.End), birthday = ymd(Birthday), provenance = Provenance, simulation = Simulation) %>%
+  dplyr::select(ID, simulation, period_start, period_end, birthday, provenance)
 
-descriptions <- c("Age 0", "Age 1-5", "Age 6-10", "Age 11-15", "Age 16", "Age 17")
 
-age_category <- function(age) {
-  case_when(age == 0 ~ descriptions[1],
-            age %in% 1:5 ~ descriptions[2],
-            age %in% 6:10 ~ descriptions[3],
-            age %in% 11:15 ~ descriptions[4],
-            age == 16 ~ descriptions[5],
-            age %in% 17:18 ~ descriptions[6],
-            TRUE ~ "Other")
-}
+labelled.episodes <- labelled_episodes(projected_periods_khjr,
+                                       seq(as.Date('2014-01-01'), as.Date('2023-12-31'), by = "month"))
 
-projected_periods_khjr %>%
-  filter(Simulation == 1) %>%
-  filter(year_diff(birthday, start) < 1) %>%
-  mutate(quarter = floor_date(start, "quarter")) %>%
-  group_by(quarter) %>%
-  summarise(n = n()) %>%
-  filter(quarter > "2020-01-01")
-  
-
-labelled_episodes <- data.frame(range_start = seq(as.Date('2014-01-01'), as.Date('2023-12-31'), by = "month")) %>%
-  mutate(range_end = range_start + months(1) - 1)  %>%
-  inner_join(projected_periods_khjr %>% rename(simulation = Simulation), by = character()) %>%
-  mutate(cic_start = pmax(start, range_start),
-         cic_end = pmin(end, range_end),
-         age_start = year_diff(birthday, cic_start),
-         age_end = year_diff(birthday, cic_end),
-         age_category_joined = age_category(year_diff(birthday, start)),
-         age_category_left = age_category(year_diff(birthday, end)),
-         age_category_start = age_category(age_start), age_category_end = age_category(age_end))
-
-labelled_episodes <- labelled_episodes %>%
-  mutate(joined = start >= range_start & start <= range_end,
-         left = end >= range_start & end <= range_end,
-         aged = age_end > age_start,
-         cic = start <= range_end & end >= range_start)
-
-chart_data <- rbind(
-  cbind(labelled_episodes %>%
-          filter(joined) %>%
-          group_by(simulation, range_start, age_category_joined) %>%
-          rename(age_category = age_category_joined) %>%
-          summarise(n = n()),
-        label = "joiners"),
-  cbind(labelled_episodes %>%
-          filter(left) %>%
-          group_by(simulation, range_start, age_category_left) %>%
-          rename(age_category = age_category_left) %>%
-          summarise(n = n()),
-        label = "leavers"),
-  cbind(labelled_episodes %>%
-          filter(aged) %>%
-          group_by(simulation, range_start, age_category_end) %>%
-          rename(age_category = age_category_end) %>%
-          summarise(n = n()),
-        label = "aged-in"),
-  cbind(labelled_episodes %>%
-          filter(aged) %>%
-          group_by(simulation, range_start, age_category_start) %>%
-          rename(age_category = age_category_start) %>%
-          summarise(n = n()),
-        label = "aged-out")
-  # ,
-  # cbind(labelled_episodes %>%
-  #         filter(cic) %>%
-  #         dplyr::select(ID, range_start, age_category_start, age_category_end) %>%
-  #         melt(id.vars = c("ID", "range_start")) %>%
-  #         group_by(range_start, value) %>%
-  #         rename(age_category = value) %>%
-  #         summarise(n = n_distinct(ID)),
-  #       label = "in-cic")
-) %>%
-  complete(range_start, age_category, fill = list(n = 0))
-
-chart_data <- rbind(chart_data,
-  dcast(simulation + range_start + age_category ~ label, value.var = "n", data = chart_data, fill = 0) %>%
-  mutate(net = joiners + `aged-in` - `aged-out` - leavers ) %>%
-  dplyr::select(simulation, range_start, age_category, net) %>%
-  rename(n = net) %>%
-  mutate(label = "net"))
+chart_data <- joiners_leavers_net(labelled.episodes)
 
 chart_data_summary <- chart_data %>%
   group_by(range_start, age_category, label) %>%
   summarise(m = mean(n),
             sd = sd(n))
 
-chart_data_summary$age_category <- factor(chart_data_summary$age_category, levels = descriptions)
+chart_data_summary$age_category <- factor(chart_data_summary$age_category, levels = age_categories)
 chart_data_summary$label <- factor(chart_data_summary$label, levels = c("joiners", "aged-in", "net", "aged-out", "leavers"))
+
+
+for (category in age_categories) {
+  print(
+    ggplot(chart_data %>%
+    filter(age_category == category), aes(range_start, n, colour = label, group = paste0(label, simulation))) +
+  facet_wrap(vars(age_category), scales = "free") +
+  scale_colour_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  geom_ma(n = 4, linetype = 1, alpha = 0.1)
+    
+  )
+}
+
+dev.off()
 
 ggplot(chart_data_summary, aes(range_start, m, fill = label)) +
   geom_bar(stat = "identity") +
@@ -139,17 +75,6 @@ ggplot(chart_data, aes(range_start, n, fill = label)) +
   facet_wrap(vars(age_category), scales = "free") +
   scale_fill_manual(values = tableau_color_pal("Tableau 20")(20))
 
-library(tidyquant)
-
-for (category in descriptions) {
-  print(chart_data_summary %>%
-    filter(age_category == category) %>%
-  ggplot(aes(range_start, m, colour = label)) +
-  facet_grid(vars(label), vars(age_category)) +
-  scale_colour_manual(values = tableau_color_pal("Tableau 20")(20)) +
-  geom_line(alpha = 0.5) +
-  geom_ma(n = 4, linetype = 1))
-}
 
 
 ggplot(chart_data, aes(range_start, n, colour = label, group = paste0(label, simulation))) +
@@ -158,18 +83,9 @@ ggplot(chart_data, aes(range_start, n, colour = label, group = paste0(label, sim
   geom_line(alpha = 0.1)
 
 
-for (category in descriptions) {
-  print(
-    ggplot(chart_data %>%
-    filter(age_category == category), aes(range_start, n, colour = label, group = paste0(label, simulation))) +
-  facet_wrap(vars(age_category), scales = "free") +
-  scale_colour_manual(values = tableau_color_pal("Tableau 20")(20)) +
-  geom_ma(n = 4, linetype = 1, alpha = 0.1)
-    
-  )
-}
 
-for (category in descriptions) {
+
+for (category in age_categories) {
   print(
     ggplot(chart_data_summary %>%
     filter(age_category == category), aes(x = range_start, ymin = m - sd, ymax = m + sd, fill = label, colour = label)) +
@@ -178,13 +94,499 @@ for (category in descriptions) {
   scale_colour_manual(values = tableau_color_pal("Tableau 20")(20)) +
   geom_ribbon(alpha = 0.3, colour = NA) +
   geom_line(aes(y = m)) +
-    facet_grid(vars(label), scales = "free_y")
+    facet_grid(vars(label))
   )
 }
 
-?geom_ribbon
 
 ```
+
+
+```{r}
+
+survival.data <- survival_data(data)
+extract_date <- as.Date("2020-03-31")
+noise <- 7
+survival.data2 <- survival_data2(survival.data, extract_date)
+survival.data3 <- survival_data3(survival.data2, noise)
+survival.data4 <- survival_data4(survival.data3)
+
+labelled.episodes.surv <- labelled_episodes(survival.data3,
+                                       seq(as.Date('2014-01-01'), as.Date('2023-12-31'), by = "month"))
+labelled.episodes.surv <- labelled.episodes.surv %>% mutate(simulation = n)
+chart.data.surv <- joiners_leavers_net(labelled.episodes.surv)
+
+chart_data_summary.surv <- chart.data.surv %>%
+  group_by(range_start, age_category, label) %>%
+  summarise(m = mean(n),
+            sd = sd(n))
+
+chart_data_summary.surv$age_category <- factor(chart_data_summary.surv$age_category, levels = age_categories)
+chart_data_summary.surv$label <- factor(chart_data_summary.surv$label, levels = c("joiners", "aged-in", "net", "aged-out", "leavers"))
+
+
+for (category in age_categories) {
+  print(
+    ggplot(chart_data_summary %>%
+    filter(age_category == category), aes(x = range_start, ymin = m - sd, ymax = m + sd, fill = label, colour = label)) +
+  scale_fill_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  scale_colour_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  geom_ribbon(alpha = 0.3, colour = NA) +
+  geom_line(aes(y = m)) +
+  geom_line(data = chart_data_summary.surv %>%
+    filter(age_category == category), aes(y = m, x = range_start, color = label), color = "black") +
+    facet_grid(vars(label))
+  )
+}
+
+for (category in age_categories) {
+  print(chart_data_summary.surv %>%
+    filter(age_category == category) %>%
+  ggplot(aes(range_start, m, colour = label)) +
+  facet_grid(vars(label), vars(age_category)) +
+  scale_colour_manual(values = tableau_color_pal("Tableau 20")(20)) +
+  geom_line() +
+  geom_ma(n = 4, linetype = 1))
+}
+
+
+
+```
+Let's produce the plots by placement instead of by age.
+
+The bottom line:
+We can't just compare the movement between two dates, as that will ignore everyone who joins and leaves care within that period.
+Summing joiners is easy: OOC -> in care
+Leavers is eash: in care -> OOC
+Age in and out can be accomplished in the same way. Count all occasions where a child crosses the age boundary whilst in care. Every age in is someone else's age out.
+
+
+```{r}
+
+label_levels <- c("joiners", "agedin", "net", "agedout", "leavers", "cic")
+
+min_chart_date <- as.Date("2014-03-01")
+extract_date <- as.Date("2020-03-31")
+max_chart_date <- as.Date("2022-03-01")
+
+bootstrapped_actuals <- read.csv("/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/scc-episodes-2020-03-31-rewind-0yr-train-3yr-project-1yr-runs-100-seed-42-untrended-birthdays.csv") %>%
+  filter(Episode == 1 & Provenance != "S") %>%
+  dplyr::mutate(period_id = ID, period_start = ymd(Period.Start), period_end = ymd(Period.End), birthday = ymd(Birthday), provenance = Provenance, simulation = Simulation) %>%
+  dplyr::select(period_id, simulation, period_start, period_end, birthday, provenance)
+
+migrations <- bootstrapped_actuals %>%
+  group_by(period_id, simulation) %>%
+  slice_head(1) %>%
+  ungroup %>%
+  inner_join(data.frame(age = 1:17), by = character()) %>%
+  mutate(anniversary = birthday + years(age)) %>%
+  filter(period_start <= anniversary & period_end > anniversary) %>%
+  mutate(age_before = age - 1, age_after = age)
+
+
+ledger <- rbind(
+  bootstrapped_actuals %>%
+    dplyr::group_by(period_id, simulation) %>%
+    dplyr::summarise(date = min(period_start), birthday = birthday[1], .groups = "drop") %>%
+    dplyr::mutate(age_group = age_category(year_diff(birthday, date))) %>%
+    dplyr::select(date, simulation, age_group) %>%
+    dplyr::mutate(label = "joiners"),
+  bootstrapped_actuals %>%
+    dplyr::group_by(period_id, simulation) %>%
+    dplyr::summarise(date = max(period_end), birthday = birthday[1], .groups = "drop") %>%
+    dplyr::mutate(age_group = age_category(year_diff(birthday, date))) %>%
+    dplyr::select(date, simulation, age_group) %>%
+    dplyr::mutate(label = "leavers"),
+  migrations %>%
+    dplyr::mutate(category_before = age_category(age_before),
+           category_after = age_category(age_after)) %>%
+    dplyr::filter(category_before != category_after) %>%
+    dplyr::rename(date = anniversary, age_group = category_after) %>%
+    dplyr::select(date, simulation, age_group) %>%
+    dplyr::mutate(label = "agedin"),
+  migrations %>%
+    dplyr::mutate(category_before = age_category(age_before),
+           category_after = age_category(age_after)) %>%
+    dplyr::filter(category_before != category_after) %>%
+    dplyr::rename(date = anniversary, age_group = category_before) %>%
+    dplyr::select(date, simulation, age_group) %>%
+    dplyr::mutate(label = "agedout")
+)
+
+grouped_ledger <- ledger %>%
+  mutate(group_date = floor_date(date, unit = "month")) %>%
+  group_by(group_date, age_group, label, simulation) %>%
+  dplyr::summarise(n = n(), .groups = "drop_last") %>%
+  complete(group_date, age_group, label, fill = list(n = 0, sd = 0))
+  
+grouped_ledger <- rbind(grouped_ledger,
+        dcast(simulation + group_date + age_group ~ label, value.var = "n", data = grouped_ledger, fill = 0) %>%
+          mutate(net = joiners + agedin - agedout - leavers ) %>%
+          dplyr::select(simulation, group_date, age_group, net) %>%
+          rename(n = net) %>%
+          mutate(label = "net"))
+
+grouped_ledger$label <- factor(grouped_ledger$label, levels = label_levels)
+
+
+```
+
+```{r}
+
+simulated_episodes <- read.csv("/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/scc-episodes-2019-03-31-rewind-1yr-train-3yr-project-5yr-runs-100-seed-42-marginal-age-out.csv") %>%
+  filter(Episode == 1) %>%
+  dplyr::mutate(period_id = ID, period_start = ymd(Period.Start), period_end = ymd(Period.End), birthday = ymd(Birthday), provenance = Provenance, simulation = Simulation) %>%
+  dplyr::select(period_id, simulation, period_start, period_end, birthday, provenance)
+
+simulated_migrations <- simulated_episodes %>%
+  group_by(period_id, simulation) %>%
+  slice_head(1) %>%
+  ungroup %>%
+  inner_join(data.frame(age = 1:17), by = character()) %>%
+  mutate(anniversary = birthday + years(age)) %>%
+  filter(period_start <= anniversary & period_end > anniversary) %>%
+  mutate(age_before = age - 1, age_after = age)
+
+simulated_ledger <- rbind(
+  simulated_episodes %>%
+    dplyr::group_by(period_id, simulation) %>%
+    dplyr::summarise(date = min(period_start), birthday = birthday[1], .groups = "drop") %>%
+    dplyr::mutate(age_group = age_category(year_diff(birthday, date))) %>%
+    dplyr::select(date, simulation, age_group) %>%
+    dplyr::mutate(label = "joiners"),
+  simulated_episodes %>%
+    dplyr::group_by(period_id, simulation) %>%
+    dplyr::summarise(date = max(period_end), birthday = birthday[1], .groups = "drop") %>%
+    dplyr::mutate(age_group = age_category(year_diff(birthday, date))) %>%
+    dplyr::select(date, simulation, age_group) %>%
+    dplyr::mutate(label = "leavers"),
+  simulated_migrations %>%
+    dplyr::mutate(category_before = age_category(age_before),
+           category_after = age_category(age_after)) %>%
+    dplyr::filter(category_before != category_after) %>%
+    dplyr::rename(date = anniversary, age_group = category_after) %>%
+    dplyr::select(date, simulation, age_group) %>%
+    dplyr::mutate(label = "agedin"),
+  simulated_migrations %>%
+    dplyr::mutate(category_before = age_category(age_before),
+           category_after = age_category(age_after)) %>%
+    dplyr::filter(category_before != category_after) %>%
+    dplyr::rename(date = anniversary, age_group = category_before) %>%
+    dplyr::select(date, simulation, age_group) %>%
+    dplyr::mutate(label = "agedout")
+)
+
+simulated_grouped_ledger <- simulated_ledger %>%
+  mutate(group_date = floor_date(date, unit = "month")) %>%
+  group_by(group_date, age_group, label, simulation) %>%
+  dplyr::summarise(n = n(), .groups = "drop_last") %>%
+  complete(group_date, age_group, label, fill = list(n = 0, sd = 0))
+  
+simulated_grouped_ledger <- rbind(simulated_grouped_ledger,
+        dcast(simulation + group_date + age_group ~ label, value.var = "n", data = simulated_grouped_ledger, fill = 0) %>%
+          mutate(net = joiners + agedin - agedout - leavers ) %>%
+          dplyr::select(simulation, group_date, age_group, net) %>%
+          rename(n = net) %>%
+          mutate(label = "net"))
+
+
+simulated_grouped_ledger$label <- factor(simulated_grouped_ledger$label, levels = label_levels)
+
+```
+
+```{r}
+
+in_cic_actuals <- bootstrapped_actuals %>%
+  inner_join(data.frame(group_date = seq(min_chart_date, extract_date, by = "month")), by = character()) %>%
+  filter(period_start <= group_date & period_end >= group_date) %>%
+  mutate(age_group = age_category(year_diff(birthday, group_date))) %>%
+  group_by(group_date, age_group, simulation) %>%
+  summarise(n = n_distinct(period_id)) %>%
+  dplyr::group_by(group_date, age_group) %>%
+  dplyr::summarise(lower95 = quantile(n, 0.025), lower50 = quantile(n, 0.25), median = quantile(n, 0.5), upper50 = quantile(n, 0.75), upper95 = quantile(n, 0.975))
+
+in_cic_simulated <- simulated_episodes %>%
+  inner_join(data.frame(group_date = seq(extract_date - years(1), max_chart_date, by = "month")), by = character()) %>%
+  filter(period_start <= group_date & period_end >= group_date) %>%
+  mutate(age_group = age_category(year_diff(birthday, group_date))) %>%
+  group_by(group_date, age_group, simulation) %>%
+  summarise(n = n_distinct(period_id)) %>%
+  dplyr::group_by(group_date, age_group) %>%
+  dplyr::summarise(lower95 = quantile(n, 0.025), lower50 = quantile(n, 0.25), median = quantile(n, 0.5), upper50 = quantile(n, 0.75), upper95 = quantile(n, 0.975))
+
+
+```
+```{r}
+FacetEqualWrap <- ggproto(
+  "FacetEqualWrap", FacetWrap,
+  
+  train_scales = function(self, x_scales, y_scales, layout, data, params) {
+    
+    # doesn't make sense if there is not an x *and* y scale
+    if (is.null(x_scales) || is.null(x_scales)) {
+        stop("X and Y scales required for facet_equal_wrap")
+    }
+    
+    # regular training of scales
+    ggproto_parent(FacetWrap, self)$train_scales(x_scales, y_scales, layout, data, params)
+    
+    # switched training of scales (x and y and y on x)
+    for (layer_data in data) {
+      match_id <- match(layer_data$PANEL, layout$PANEL)
+      y_vars <- intersect(y_scales[[1]]$aesthetics, names(layer_data))
+      
+      SCALE_Y <- layout$SCALE_Y[match_id]
+      SCALE_Y <- replace(SCALE_Y, SCALE_Y==2, 1)
+      ggplot2:::scale_apply(layer_data, y_vars, "train", SCALE_Y, y_scales)
+    }
+  }
+)
+
+
+facet_wrap_equal <- function(...) {
+  # take advantage of the sanitizing that happens in facet_wrap
+  facet_super <- facet_wrap(...)
+  
+  ggproto(NULL, FacetEqualWrap,
+    shrink = facet_super$shrink,
+    params = facet_super$params
+  )
+}
+
+data.frame(x = rnorm(10), y = rnorm(10, sd = 3), label = c("one", "one", "one", "two", "two", "two", "three", "three", "three", "three")) %>%
+  ggplot(aes(x, y)) +
+  geom_point() +
+  facet_wrap_equal(~label, scales = "free")
+
+
+```
+
+```{r}
+
+state_labels <- c(
+  'joiners' = 'Joiners',
+  'agedin' = 'Aged in',
+  'net' = 'Net',
+  'agedout' = 'Aged out',
+  'leavers' = 'Leavers',
+  'cic' = 'CiC'
+)
+
+pdf("/Users/henry/Desktop/lattice-summary-w-cic.pdf")
+
+for (category in age_categories) {
+  print(
+    ggplot() +
+      geom_line(data = simulated_grouped_ledger %>% filter(group_date >= as.Date("2018-01-01") & group_date <= as.Date("2022-01-01") &
+                                                             age_group == category),
+                aes(group_date, n, group = simulation, colour = paste(label, "simulated")),
+                stat = "identity", alpha = 0.1) +
+      geom_ma(data = simulated_grouped_ledger %>% filter(group_date >= as.Date("2016-03-01") & group_date < as.Date("2022-04-01") &
+                                                           age_group == category) %>%
+                group_by(group_date, age_group, label) %>%
+                dplyr::summarise(n = median(n)),
+              aes(group_date, n, colour = label),
+              n = 12) +
+      geom_line(data = simulated_grouped_ledger %>% filter(group_date >= as.Date("2018-01-01") & group_date <= as.Date("2022-01-01") &
+                                                             age_group == category &
+                                                             simulation == 1),
+                aes(group_date, n, group = simulation, colour = label),
+                stat = "identity", linetype = 3) +
+      geom_line(data = grouped_ledger %>% filter(age_group == category, group_date >= as.Date("2016-01-01") & group_date <= extract_date),
+                aes(group_date, n, group = simulation, colour = label),
+                stat = "identity", alpha = 0.1) +
+      geom_line(data = in_cic_simulated %>% filter(group_date >= as.Date("2016-01-01") & age_group == category) %>% mutate(label = factor("cic", levels = label_levels)), aes(group_date, median), linetype = 3) +
+      geom_ribbon(data = in_cic_simulated %>% filter(group_date >= as.Date("2016-01-01") & age_group == category) %>% mutate(label = factor("cic", levels = label_levels)), aes(group_date, ymin = lower95, ymax = upper95), alpha = 0.2) +
+      geom_ribbon(data = in_cic_simulated %>% filter(group_date >= as.Date("2016-01-01") & age_group == category) %>% mutate(label = factor("cic", levels = label_levels)), aes(group_date, ymin = lower50, ymax = upper50), alpha = 0.2) +
+      geom_line(data = in_cic_actuals %>% filter(group_date >= as.Date("2016-01-01") & age_group == category) %>% mutate(label = factor("cic", levels = label_levels)), aes(group_date, median)) +
+      facet_grid(vars(label), vars(age_group), labeller = labeller(label = state_labels), scales = "free_y") +
+      scale_colour_manual(values = colours) +
+      theme(legend.position = "none") +
+      labs(x = "Date", y = "Children")
+  )
+}
+
+dev.off()
+
+rbind(simulated_grouped_ledger %>%
+  filter(group_date > extract_date & group_date <= as.Date("2022-01-01")) %>%
+  rename(month = group_date, metric = label) %>%
+  mutate(source = "simulation") %>%
+  group_by(month, age_group, metric, source) %>%
+  dplyr::summarise(lower.95 = quantile(n, 0.025), lower.50 = quantile(n, 0.25), median = median(n), upper.50 = quantile(n, 0.75), upper.95 = quantile(n, 0.975)),grouped_ledger %>%
+   filter(group_date >= as.Date("2014-01-01") & group_date <= extract_date) %>%
+   rename(month = group_date, metric = label) %>%
+   mutate(source = "SSDA903") %>%
+   group_by(month, age_group, metric, source) %>%
+   dplyr::summarise(lower.95 = quantile(n, 0.025), lower.50 = quantile(n, 0.25), median = median(n), upper.50 = quantile(n, 0.75), upper.95 = quantile(n, 0.975))
+) %>%
+  write.csv(file = "/Users/henry/Desktop/chart-data.csv", row.names = FALSE)
+
+```
+
+
+```{r}
+
+interval_data <- rbind(survival.data4 %>%
+    filter(period_start > as.Date("2015-01-01")) %>%
+    mutate(simulation = n, admission_age = as.numeric(as.character(admission_age))) %>%
+  group_by(admission_age, simulation) %>%
+  arrange(admission_age, simulation, period_start) %>%
+  mutate(interval = as.numeric(period_start - lag(period_start))) %>%
+  dplyr::select(admission_age, simulation, interval) %>%
+  mutate(label = "historic"),
+  read.csv(episodes_csv) %>%
+  filter(Episode == 1) %>%
+  filter(Provenance == "S") %>%
+  dplyr::mutate(period_start = ymd(Period.Start), simulation = Simulation, admission_age = Admission.Age) %>%
+  group_by(admission_age, simulation) %>%
+  arrange(admission_age, simulation, period_start) %>%
+  mutate(interval = as.numeric(period_start - lag(period_start))) %>%
+  dplyr::select(admission_age, simulation, interval) %>%
+    mutate(label = "simulated")) %>%
+  filter(!is.na(interval))
+
+for (age in 0:17){
+  print(interval_data %>%
+          filter(admission_age == age) %>%
+  ggplot(aes(interval, fill = label)) +
+  geom_histogram(bins = 50) +
+    facet_wrap(vars(label), scales = "free_y") +
+    geom_vline(data = interval_data %>%
+          filter(admission_age == age) %>%
+            group_by(label) %>%
+            dplyr::summarise(m = mean(interval)),
+          aes(xintercept = m),
+          linetype = 2) +
+    scale_fill_manual(values = tableau_color_pal("Tableau 20")(20))
+  )
+}
+
+for (age in 0:17){
+  print(interval_data %>%
+          filter(admission_age == age) %>%
+  ggplot(aes(interval, fill = label)) +
+  geom_histogram(bins = 50) +
+    facet_wrap(vars(label), scales = "free_y") +
+    scale_x_log10() +
+    geom_vline(data = interval_data %>%
+          filter(admission_age == age) %>%
+            group_by(label) %>%
+            dplyr::summarise(m = mean(interval)),
+          aes(xintercept = m),
+          linetype = 2) +
+    scale_fill_manual(values = tableau_color_pal("Tableau 20")(20))
+  )
+}
+
+
+```
+```{r}
+for (age in 0:17){
+  print(qqplot((interval_data %>% filter(admission_age == age & label == "historic"))$interval,
+               (interval_data %>% filter(admission_age == age & label == "simulated"))$interval,
+               common.scale = TRUE,
+               xlab = "Historic", ylab = "Simulated"))
+}
+
+gg_qq_empirical <- function(a, b, quantiles = seq(0, 1, 0.01))
+{
+  a_lab <- deparse(substitute(a))
+  if(missing(b)) {
+    b <- rnorm(length(a), mean(a), sd(a))
+    b_lab <- "normal distribution"
+  }
+  else b_lab <- deparse(substitute(b))
+  
+  ggplot(mapping = aes(x = quantile(a, quantiles), 
+                       y = quantile(b, quantiles))) + 
+    geom_point() +
+    geom_abline(aes(slope = 1, intercept = 0), linetype = 2) +
+    labs(x = paste(deparse(substitute(a)), "quantiles"), 
+         y = paste(deparse(substitute(b)), "quantiles"),
+         title = paste("Empirical qq plot of", a_lab, "against", b_lab))
+}
+
+
+for (age in 0:17){
+  print(gg_qq_empirical(
+               (interval_data %>% filter(admission_age == age & label == "historic"))$interval,
+               (interval_data %>% filter(admission_age == age & label == "simulated"))$interval) +
+        coord_equal() +
+          labs(x = "Historic", y = "Simulated")
+  )
+}
+
+for (age in 0:17){
+  print(gg_qq_empirical(
+               (interval_data %>% filter(admission_age == age & label == "historic"))$interval,
+               (interval_data %>% filter(admission_age == age & label == "simulated" & interval < 250))$interval) +
+        coord_equal() +
+          labs(x = "Historic", y = "Simulated", title = age)
+  )
+}
+
+```
+```{r}
+# Historic joiners per week, all ages
+
+historic_joiners_per_week <- survival.data4 %>%
+  filter(period_start > as.Date("2012-01-01")) %>%
+  mutate(date_group = floor_date(period_start, unit = "week"),
+         simulation = n) %>%
+  group_by(date_group, simulation) %>%
+  dplyr::summarise(joiners = n())
+
+projected_joiners_per_week <- read.csv(episodes_csv) %>%
+  filter(Episode == 1 & Provenance == "S") %>%
+  dplyr::mutate(period_start = ymd(Period.Start), period_end = ymd(Period.End), birthday = ymd(Birthday), provenance = Provenance, simulation = Simulation) %>%
+  dplyr::select(ID, simulation, period_start, period_end, birthday, provenance) %>%
+  filter(period_start >= as.Date("2019-04-01")) %>%
+  mutate(date_group = floor_date(period_start, unit = "week")) %>%
+  group_by(date_group, simulation) %>%
+  dplyr::summarise(joiners = n())
+
+ggplot(rbind(cbind(historic_joiners_per_week, label = "historic"),
+             cbind(projected_joiners_per_week, label = "simulated")),
+       aes(joiners, fill = label)) +
+  geom_histogram() +
+  facet_wrap(vars(label))
+
+```
+```{r}
+fill_zero_dates <- function(dat) {
+  range <- seq(min(dat$date_group), max(dat$date_group), "day")
+  data.frame(date_group = range) %>%
+    left_join(dat, by = "date_group") %>%
+    mutate(joiners = coalesce(joiners, 0))
+}
+
+
+historic_joiners_per_day <- survival.data4 %>%
+  filter(period_start > as.Date("2012-01-01")) %>%
+  mutate(date_group = floor_date(period_start, unit = "day"),
+         simulation = n) %>%
+  group_by(date_group, simulation) %>%
+  dplyr::summarise(joiners = n()) %>%
+  fill_zero_dates
+
+projected_joiners_per_day <- read.csv(episodes_csv) %>%
+  filter(Episode == 1 & Provenance == "S") %>%
+  dplyr::mutate(period_start = ymd(Period.Start), period_end = ymd(Period.End), birthday = ymd(Birthday), provenance = Provenance, simulation = Simulation) %>%
+  dplyr::select(ID, simulation, period_start, period_end, birthday, provenance) %>%
+  filter(period_start >= as.Date("2019-04-01")) %>%
+  mutate(date_group = floor_date(period_start, unit = "day")) %>%
+  group_by(date_group, simulation) %>%
+  dplyr::summarise(joiners = n()) %>%
+  fill_zero_dates
+
+ggplot(rbind(cbind(historic_joiners_per_day, label = "historic"),
+             cbind(projected_joiners_per_day, label = "simulated")),
+       aes(joiners, fill = label)) +
+  geom_histogram() +
+  facet_wrap(vars(label))
+```
+
 
 ```{r}
 labelled_episodes %>%
@@ -206,5 +608,4 @@ survival_data4 %>%
   facet_wrap(vars(admission_age), scales = "free")
 
 ```
-
 
