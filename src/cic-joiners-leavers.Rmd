@@ -233,7 +233,7 @@ grouped_ledger$label <- factor(grouped_ledger$label, levels = label_levels)
 
 ```{r}
 
-simulated_episodes <- read.csv("/Users/henry/Mastodon C/witan.cic/data/scc/2021-02-24/scc-episodes-2019-03-31-rewind-1yr-train-3yr-project-5yr-runs-100-seed-42-marginal-age-out.csv") %>%
+simulated_episodes <- read.csv("/Users/henry/Mastodon C/witan.cic/data/scc/2021-04-08/untrended/scc-episodes-2019-03-31-rewind-1yr-train-1yr-project-5yr-runs-100-seed-42-latest-version-untrended.csv") %>%
   filter(Episode == 1) %>%
   dplyr::mutate(period_id = ID, period_start = ymd(Period.Start), period_end = ymd(Period.End), birthday = ymd(Birthday), provenance = Provenance, simulation = Simulation) %>%
   dplyr::select(period_id, simulation, period_start, period_end, birthday, provenance)
@@ -303,7 +303,7 @@ in_cic_actuals <- bootstrapped_actuals %>%
   group_by(group_date, age_group, simulation) %>%
   summarise(n = n_distinct(period_id)) %>%
   dplyr::group_by(group_date, age_group) %>%
-  dplyr::summarise(lower95 = quantile(n, 0.025), lower50 = quantile(n, 0.25), median = quantile(n, 0.5), upper50 = quantile(n, 0.75), upper95 = quantile(n, 0.975))
+  dplyr::summarise(lower_95 = quantile(n, 0.025), lower_50 = quantile(n, 0.25), median = quantile(n, 0.5), upper_50 = quantile(n, 0.75), upper_95 = quantile(n, 0.975))
 
 in_cic_simulated <- simulated_episodes %>%
   inner_join(data.frame(group_date = seq(extract_date - years(1), max_chart_date, by = "month")), by = character()) %>%
@@ -312,7 +312,7 @@ in_cic_simulated <- simulated_episodes %>%
   group_by(group_date, age_group, simulation) %>%
   summarise(n = n_distinct(period_id)) %>%
   dplyr::group_by(group_date, age_group) %>%
-  dplyr::summarise(lower95 = quantile(n, 0.025), lower50 = quantile(n, 0.25), median = quantile(n, 0.5), upper50 = quantile(n, 0.75), upper95 = quantile(n, 0.975))
+  dplyr::summarise(lower_95 = quantile(n, 0.025), lower_50 = quantile(n, 0.25), median = quantile(n, 0.5), upper_50 = quantile(n, 0.75), upper_95 = quantile(n, 0.975))
 
 
 ```
@@ -372,8 +372,14 @@ state_labels <- c(
   'cic' = 'CiC'
 )
 
-pdf("/Users/henry/Desktop/lattice-summary-w-cic.pdf")
+pdf("/Users/henry/Desktop/scc-episodes-2019-03-31-rewind-1yr-train-1yr-project-5yr-runs-100-seed-42-latest-version-trended-lattice.pdf")
 
+colours <- tableau_color_pal("Tableau 20")(10)
+names(colours) <- c("joiners", "joiners simulated",
+                    "agedin", "agedin simulated",
+                    "net", "net simulated",
+                    "agedout", "agedout simulated",
+                    "leavers", "leavers simulated")
 for (category in age_categories) {
   print(
     ggplot() +
@@ -396,8 +402,8 @@ for (category in age_categories) {
                 aes(group_date, n, group = simulation, colour = label),
                 stat = "identity", alpha = 0.1) +
       geom_line(data = in_cic_simulated %>% filter(group_date >= as.Date("2016-01-01") & age_group == category) %>% mutate(label = factor("cic", levels = label_levels)), aes(group_date, median), linetype = 3) +
-      geom_ribbon(data = in_cic_simulated %>% filter(group_date >= as.Date("2016-01-01") & age_group == category) %>% mutate(label = factor("cic", levels = label_levels)), aes(group_date, ymin = lower95, ymax = upper95), alpha = 0.2) +
-      geom_ribbon(data = in_cic_simulated %>% filter(group_date >= as.Date("2016-01-01") & age_group == category) %>% mutate(label = factor("cic", levels = label_levels)), aes(group_date, ymin = lower50, ymax = upper50), alpha = 0.2) +
+      geom_ribbon(data = in_cic_simulated %>% filter(group_date >= as.Date("2016-01-01") & age_group == category) %>% mutate(label = factor("cic", levels = label_levels)), aes(group_date, ymin = lower_95, ymax = upper_95), alpha = 0.2) +
+      geom_ribbon(data = in_cic_simulated %>% filter(group_date >= as.Date("2016-01-01") & age_group == category) %>% mutate(label = factor("cic", levels = label_levels)), aes(group_date, ymin = lower_50, ymax = upper_50), alpha = 0.2) +
       geom_line(data = in_cic_actuals %>% filter(group_date >= as.Date("2016-01-01") & age_group == category) %>% mutate(label = factor("cic", levels = label_levels)), aes(group_date, median)) +
       facet_grid(vars(label), vars(age_group), labeller = labeller(label = state_labels), scales = "free_y") +
       scale_colour_manual(values = colours) +
@@ -411,21 +417,34 @@ dev.off()
 rbind(simulated_grouped_ledger %>%
   filter(group_date > extract_date & group_date <= as.Date("2022-01-01")) %>%
   rename(month = group_date, metric = label) %>%
-  mutate(source = "simulation") %>%
+  mutate(source = "projection") %>%
   group_by(month, age_group, metric, source) %>%
-  dplyr::summarise(lower.95 = quantile(n, 0.025), lower.50 = quantile(n, 0.25), median = median(n), upper.50 = quantile(n, 0.75), upper.95 = quantile(n, 0.975)),grouped_ledger %>%
+  dplyr::summarise(lower_95 = quantile(n, 0.025), lower_50 = quantile(n, 0.25), median = median(n), upper_50 = quantile(n, 0.75), upper_95 = quantile(n, 0.975)),grouped_ledger %>%
    filter(group_date >= as.Date("2014-01-01") & group_date <= extract_date) %>%
    rename(month = group_date, metric = label) %>%
    mutate(source = "SSDA903") %>%
    group_by(month, age_group, metric, source) %>%
-   dplyr::summarise(lower.95 = quantile(n, 0.025), lower.50 = quantile(n, 0.25), median = median(n), upper.50 = quantile(n, 0.75), upper.95 = quantile(n, 0.975))
+   dplyr::summarise(lower_95 = quantile(n, 0.025), lower_50 = quantile(n, 0.25), median = median(n), upper_50 = quantile(n, 0.75), upper_95 = quantile(n, 0.975)),
+  in_cic_actuals %>%
+    filter(group_date >= as.Date("2014-01-01") & group_date <= extract_date) %>%
+    rename(month = group_date) %>%
+    mutate(metric = "cic", source = "SSDA903") %>%
+    dplyr::select(month, age_group, metric, source, lower_95, lower_50, median, upper_50, upper_95),
+  in_cic_simulated %>%
+    filter(group_date > extract_date & group_date <= as.Date("2022-01-01")) %>%
+    rename(month = group_date) %>%
+    mutate(metric = "cic", source = "projection") %>%
+    dplyr::select(month, age_group, metric, source, lower_95, lower_50, median, upper_50, upper_95)
 ) %>%
-  write.csv(file = "/Users/henry/Desktop/chart-data.csv", row.names = FALSE)
+  write.csv(file = "/Users/henry/Desktop/scc-episodes-2019-03-31-rewind-1yr-train-1yr-project-5yr-runs-100-seed-42-latest-version-untrended-summary.csv", row.names = FALSE)
 
 ```
-
+```{r}
+in_cic_actuals
+```
 
 ```{r}
+
 
 interval_data <- rbind(survival.data4 %>%
     filter(period_start > as.Date("2015-01-01")) %>%
